@@ -5,7 +5,7 @@
 
 include GENERIC
 
-ident		PAE-GENERIC
+ident		SEED
 
 # To make a PAE kernel, the next option is needed
 options 	PAE			# Physical Address Extensions Kernel
