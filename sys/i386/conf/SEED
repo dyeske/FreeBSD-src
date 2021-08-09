@@ -57,15 +57,14 @@ nodevice                tws                     # LSI 3ware 9750 SATA+SAS 6Gb/s 
 
 nodevice	ahb
 nodevice	amd
-# nodevice	sym
-# nodevice	trm
-
+nodevice	sym
+nodevice	trm
+nodevice	twe
 nodevice	adv
 nodevice	adw
 nodevice	aha
 nodevice	aic
 nodevice	bt
-
 nodevice	ncv
 #
 # # FireWire support
@@ -75,9 +74,8 @@ nodevice          fwe             # Ethernet over FireWire (non-standard!)
 nodevice          fwip            # IP over FireWire (RFC 2734,3146)
 nodevice          dcons           # Dumb console driver
 nodevice          dcons_crom      # Configuration ROM for dcons
-#
-# nodevice	nsp
-# nodevice	stg
+nodevice	nsp
+nodevice	stg
 
 # nodevice	asr
 nodevice	dpt
@@ -91,27 +89,35 @@ nodevice	mlx
 
 # nodevice	agp
 
-# nodevice	txp
-# nodevice	vx
+nodevice	txp
+nodevice	vx
+nodevice	nve
+nodevice	pcn
+nodevice	sf
+nodevice	sis
+nodevice	ste
+nodevice	tl
+nodevice	tx
+nodevice	vr
+nodevice	wb
+nodevice	cs
+nodevice	ed
+nodevice	ex
+nodevice	ep
+nodevice	fe
+nodevice	ie
+nodevice	sn
+nodevice	xe
 
-# nodevice	nve
-# nodevice	pcn
-# nodevice	sf
-# nodevice	sis
-# nodevice	ste
-# nodevice	tl
-# nodevice	tx
-# nodevice	vr
-# nodevice	wb
-
-# nodevice	cs
-# nodevice	ed
-# nodevice	ex
-# nodevice	ep
-# nodevice	fe
-# nodevice	ie
-# nodevice	sn
-# nodevice	xe
+nodevice      u3g     # USB-based 3G modems (Option, Huawei, Sierra)
+nodevice      uark        # Technologies ARK3116 based serial adapters
+nodevice      ubsa        # Belkin F5U103 and compatible serial adapters
+nodevice      uftdi       # For FTDI usb serial adapters
+nodevice      uipaq       # Some WinCE based devices
+nodevice      uplcom      # Prolific PL-2303 serial adapters
+nodevice      uslcom      # SI Labs CP2101/CP2102 serial adapters
+nodevice      uvisor      # Visor and Palm devices
+nodevice      uvscom      # 
 
 # nodevice	an
 # nodevice	ath		# Atheros pci/cardbus NIC's
