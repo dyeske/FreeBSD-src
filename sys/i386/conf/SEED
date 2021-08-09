@@ -6,20 +6,48 @@
 include GENERIC
 
 ident		SEED
-
 # To make a PAE kernel, the next option is needed
-options 	PAE			# Physical Address Extensions Kernel
-
+# options 	PAE			# Physical Address Extensions Kernel
 # Compile acpi in statically since the module isn't built properly.  Most
 # machines which support large amounts of memory require acpi.
-device		acpi
 
 # Don't build modules with this kernel config, since they are not built with
 # the correct options headers.
-makeoptions	NO_MODULES=yes
+# makeoptions	NO_MODULES=yes
+
+nooptions       INVARIANTS
+nooptions       INVARIANT_SUPPORT
+nooptions       WITNESS
+nooptions       WITNESS_SKIPSPIN
+nooptions       BUF_TRACKING
+nooptions       DEADLKRES
+nooptions       FULL_BUF_TRACKING
+nooptions       COVERAGE
+nooptions       KCOV
+nooptions       MALLOC_DEBUG_MAXZONES
+nooptions       QUEUE_MACRO_DEBUG_TRASH
+nooptions       COMPAT_FREEBSD32        # Compatible with i386 binaries
+nooptions       COMPAT_FREEBSD4         # Compatible with FreeBSD4
+nooptions       COMPAT_FREEBSD5         # Compatible with FreeBSD5
+nooptions       COMPAT_FREEBSD6         # Compatible with FreeBSD6
+nooptions       COMPAT_FREEBSD7         # Compatible with FreeBSD7
 
 # force isp firmware to fully loaded
-device		ispfw
+# device		ispfw
+
+# Floppy drives
+nodevice                fdc
+#
+# RAID controllers interfaced to the SCSI subsystem
+nodevice                amr                     # AMI MegaRAID
+nodevice                arcmsr                  # Areca SATA II RAID
+nodevice                ciss                    # Compaq Smart RAID 5*
+nodevice                iir                     # Intel Integrated RAID
+nodevice                ips                     # IBM (Adaptec) ServeRAID
+nodevice                mly                     # Mylex AcceleRAID/eXtremeRAID
+nodevice                twa                     # 3ware 9000 series PATA/SATA RAID
+nodevice                smartpqi                # Microsemi smartpqi driver
+nodevice                tws                     # LSI 3ware 9750 SATA+SAS 6Gb/s RAID controller
 
 # What follows is a list of drivers that are normally in GENERIC, but either
 # don't work or are untested with PAE.  Be very careful before enabling any
@@ -29,8 +57,8 @@ device		ispfw
 
 nodevice	ahb
 nodevice	amd
-nodevice	sym
-nodevice	trm
+# nodevice	sym
+# nodevice	trm
 
 nodevice	adv
 nodevice	adw
@@ -39,46 +67,57 @@ nodevice	aic
 nodevice	bt
 
 nodevice	ncv
-nodevice	nsp
-nodevice	stg
+#
+# # FireWire support
+nodevice          firewire        # FireWire bus code
+nodevice         sbp             # SCSI over FireWire (Requires scbus and da)
+nodevice          fwe             # Ethernet over FireWire (non-standard!)
+nodevice          fwip            # IP over FireWire (RFC 2734,3146)
+nodevice          dcons           # Dumb console driver
+nodevice          dcons_crom      # Configuration ROM for dcons
+#
+# nodevice	nsp
+# nodevice	stg
 
-nodevice	asr
+# nodevice	asr
 nodevice	dpt
 nodevice	mly
-nodevice	hptmv
-nodevice	hptrr
+# nodevice	hptmv
+# nodevice	hptrr
 
-nodevice	ida
+# nodevice	ida
 nodevice	mlx
-nodevice	pst
+# nodevice	pst
 
-nodevice	agp
+# nodevice	agp
 
-nodevice	txp
-nodevice	vx
+# nodevice	txp
+# nodevice	vx
 
-nodevice	nve
-nodevice	pcn
-nodevice	sf
-nodevice	sis
-nodevice	ste
-nodevice	tl
-nodevice	tx
-nodevice	vr
-nodevice	wb
+# nodevice	nve
+# nodevice	pcn
+# nodevice	sf
+# nodevice	sis
+# nodevice	ste
+# nodevice	tl
+# nodevice	tx
+# nodevice	vr
+# nodevice	wb
 
-nodevice	cs
-nodevice	ed
-nodevice	ex
-nodevice	ep
-nodevice	fe
-nodevice	ie
-nodevice	sn
-nodevice	xe
+# nodevice	cs
+# nodevice	ed
+# nodevice	ex
+# nodevice	ep
+# nodevice	fe
+# nodevice	ie
+# nodevice	sn
+# nodevice	xe
 
-nodevice	an
-nodevice	ath		# Atheros pci/cardbus NIC's
-nodevice	ath_hal
-nodevice	ath_rate_sample	# SampleRate tx rate control for ath
-nodevice	ral
-nodevice	wi
+# nodevice	an
+# nodevice	ath		# Atheros pci/cardbus NIC's
+# nodevice	ath_hal
+# nodevice	ath_rate_sample	# SampleRate tx rate control for ath
+# nodevice	ral
+# nodevice	wi
+#
+
