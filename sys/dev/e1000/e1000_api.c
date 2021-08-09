@@ -281,6 +281,11 @@ s32 e1000_set_mac_type(struct e1000_hw *hw)
 	case E1000_DEV_ID_82580_COPPER_DUAL:
 		mac->type = e1000_82580;
 		break;
+	case E1000_DEV_ID_I354_BACKPLANE_1GBPS:
+	case E1000_DEV_ID_I354_SGMII:
+	case E1000_DEV_ID_I354_BACKPLANE_2_5GBPS:
+		mac->type = e1000_i354;
+		break;
 	default:
 		/* Should never have loaded on this device */
 		ret_val = -E1000_ERR_MAC_INIT;
@@ -372,6 +377,7 @@ s32 e1000_setup_init_funcs(struct e1000_hw *hw, bool init_device)
 	case e1000_82575:
 	case e1000_82576:
 	case e1000_82580:
+	case e1000_i354:
 		e1000_init_function_pointers_82575(hw);
 		break;
 	default:
