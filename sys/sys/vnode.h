@@ -613,6 +613,10 @@ typedef void vop_getpages_iodone_t(void *, vm_page_t *, int, int);
 #define	VN_OPEN_NAMECACHE	0x00000004
 #define	VN_OPEN_INVFS		0x00000008
 
+/* copy_file_range kernel flags */
+#define	COPY_FILE_RANGE_KFLAGS		0xff000000
+#define	COPY_FILE_RANGE_TIMEO1SEC	0x01000000	/* Return after 1sec. */
+
 /*
  * Public vnode manipulation functions.
  */
@@ -690,6 +694,9 @@ int	vn_vptocnp(struct vnode **vp, char *buf, size_t *buflen);
 int	vn_getcwd(char *buf, char **retbuf, size_t *buflen);
 int	vn_fullpath(struct vnode *vp, char **retbuf, char **freebuf);
 int	vn_fullpath_global(struct vnode *vp, char **retbuf, char **freebuf);
+int	vn_fullpath_hardlink(struct vnode *vp, struct vnode *dvp,
+	    const char *hdrl_name, size_t hrdl_name_length, char **retbuf,
+	    char **freebuf, size_t *buflen);
 struct vnode *
 	vn_dir_dd_ino(struct vnode *vp);
 int	vn_commname(struct vnode *vn, char *buf, u_int buflen);
@@ -1087,6 +1094,7 @@ int vn_chown(struct file *fp, uid_t uid, gid_t gid, struct ucred *active_cred,
 void vn_fsid(struct vnode *vp, struct vattr *va);
 
 int vn_dir_check_exec(struct vnode *vp, struct componentname *cnp);
+int vn_lktype_write(struct mount *mp, struct vnode *vp);
 
 #define VOP_UNLOCK_FLAGS(vp, flags)	({				\
 	struct vnode *_vp = (vp);					\

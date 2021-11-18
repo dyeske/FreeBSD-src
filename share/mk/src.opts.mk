@@ -210,7 +210,6 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_VERIEXEC_PASS_MANIFEST \
     OFED_EXTRA \
     OPENLDAP \
-    OPENSSL_KTLS \
     RPCBIND_WARMSTART_SUPPORT \
     SORT_THREADS \
     SVN \
@@ -330,6 +329,13 @@ BROKEN_OPTIONS+=LOADER_UBOOT
 BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
 .endif
 
+# Kernel TLS is enabled by default on amd64 and aarch64
+.if ${__T} == "aarch64" || ${__T} == "amd64"
+__DEFAULT_YES_OPTIONS+=OPENSSL_KTLS
+.else
+__DEFAULT_NO_OPTIONS+=OPENSSL_KTLS
+.endif
+
 .if ${__T:Mmips64*}
 # profiling won't work on MIPS64 because there is only assembly for o32
 BROKEN_OPTIONS+=PROFILE
@@ -356,14 +362,6 @@ BROKEN_OPTIONS+=NVME
 __DEFAULT_YES_OPTIONS+=OPENMP
 .else
 __DEFAULT_NO_OPTIONS+=OPENMP
-.endif
-
-.if ${.MAKE.OS} != "FreeBSD"
-# Building the target compiler requires building tablegen on the host
-# which is (currently) not possible on non-FreeBSD.
-BROKEN_OPTIONS+=CLANG LLD LLDB
-# The same also applies to the bootstrap LLVM.
-BROKEN_OPTIONS+=CLANG_BOOTSTRAP LLD_BOOTSTRAP
 .endif
 
 .include <bsd.mkopt.mk>
@@ -426,6 +424,7 @@ MK_NLS_CATALOGS:= no
 .if ${MK_OPENSSL} == "no"
 MK_DMAGENT:=	no
 MK_OPENSSH:=	no
+MK_OPENSSL_KTLS:=	no
 MK_KERBEROS:=	no
 MK_KERBEROS_SUPPORT:=	no
 MK_LDNS:=	no

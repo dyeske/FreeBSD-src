@@ -76,7 +76,6 @@ __FBSDID("$FreeBSD$");
 
 #include <security/mac/mac_framework.h>
 
-#define	DEFAULT_HOSTUUID	"00000000-0000-0000-0000-000000000000"
 #define	PRISON0_HOSTUUID_MODULE	"hostuuid"
 
 MALLOC_DEFINE(M_PRISON, "prison", "Prison structures");
@@ -1305,7 +1304,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 #endif
 		/*
 		 * Allocate a dedicated cpuset for each jail.
-		 * Unlike other initial settings, this may return an erorr.
+		 * Unlike other initial settings, this may return an error.
 		 */
 		error = cpuset_create_root(ppr, &pr->pr_cpuset);
 		if (error)
@@ -3619,7 +3618,7 @@ prison_priv_check(struct ucred *cred, int priv)
 
 		/*
 		 * As in the non-jail case, non-root users are expected to be
-		 * able to read kernel/phyiscal memory (provided /dev/[k]mem
+		 * able to read kernel/physical memory (provided /dev/[k]mem
 		 * exists in the jail and they have permission to access it).
 		 */
 	case PRIV_KMEM_READ:

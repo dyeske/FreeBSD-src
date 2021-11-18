@@ -35,14 +35,6 @@
 
 #include <net/debugnet.h>
 
-#ifndef ETH_DRIVER_VERSION
-#define	ETH_DRIVER_VERSION	"3.6.0"
-#endif
-#define DRIVER_RELDATE	"December 2020"
-
-static const char mlx5e_version[] = "mlx5en: Mellanox Ethernet driver "
-	ETH_DRIVER_VERSION " (" DRIVER_RELDATE ")\n";
-
 static int mlx5e_get_wqe_sz(struct mlx5e_priv *priv, u32 *wqe_sz, u32 *nsegs);
 
 struct mlx5e_channel_param {
@@ -1126,10 +1118,10 @@ mlx5e_reset_calibration_callout(struct mlx5e_priv *priv)
 	if (priv->clbr_done == 0)
 		mlx5e_calibration_callout(priv);
 	else
-		callout_reset_curcpu(&priv->tstmp_clbr, (priv->clbr_done <
+		callout_reset_sbt_curcpu(&priv->tstmp_clbr, (priv->clbr_done <
 		    mlx5e_calibration_duration ? mlx5e_fast_calibration :
-		    mlx5e_normal_calibration) * hz, mlx5e_calibration_callout,
-		    priv);
+		    mlx5e_normal_calibration) * SBT_1S, 0,
+		    mlx5e_calibration_callout, priv, C_DIRECT_EXEC);
 }
 
 static uint64_t
@@ -4691,7 +4683,7 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 	    OID_AUTO, "rx_clbr_done", CTLFLAG_RD,
 	    &priv->clbr_done, 0,
 	    "RX timestamps calibration state");
-	callout_init(&priv->tstmp_clbr, CALLOUT_DIRECT);
+	callout_init(&priv->tstmp_clbr, 1);
 	mlx5e_reset_calibration_callout(priv);
 
 	pa.pa_version = PFIL_VERSION;
@@ -4909,14 +4901,6 @@ mlx5e_cleanup(void)
 {
 	mlx5_unregister_interface(&mlx5e_interface);
 }
-
-static void
-mlx5e_show_version(void __unused *arg)
-{
-
-	printf("%s", mlx5e_version);
-}
-SYSINIT(mlx5e_show_version, SI_SUB_DRIVERS, SI_ORDER_ANY, mlx5e_show_version, NULL);
 
 module_init_order(mlx5e_init, SI_ORDER_SIXTH);
 module_exit_order(mlx5e_cleanup, SI_ORDER_SIXTH);

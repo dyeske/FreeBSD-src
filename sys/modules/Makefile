@@ -166,6 +166,7 @@ SUBDIR=	\
 	if_vlan \
 	if_vxlan \
 	iflib \
+	${_igc} \
 	${_iir} \
 	imgact_binmisc \
 	${_intelspi} \
@@ -641,6 +642,7 @@ _et=		et
 _ftwd=		ftwd
 _exca=		exca
 _if_ndis=	if_ndis
+_igc=		igc
 _io=		io
 _itwd=		itwd
 _ix=		ix
@@ -728,6 +730,7 @@ _tpm=		tpm
 _twa=		twa
 _vesa=		vesa
 _viawd=		viawd
+_vmd=		vmd
 _wpi=		wpi
 .if ${MK_SOURCELESS_UCODE} != "no"
 _wpifw=		wpifw
@@ -746,7 +749,6 @@ _pms=		pms
 _qlxge=		qlxge
 _qlxgb=		qlxgb
 _sume=		sume
-_vmd=		vmd
 .if ${MK_SOURCELESS_UCODE} != "no"
 _qlxgbe=	qlxgbe
 _qlnx=		qlnx

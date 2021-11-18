@@ -12,6 +12,31 @@ Items affecting the ports and packages system can be found in
 /usr/ports/UPDATING.  Please read that file before updating system packages
 and/or ports.
 
+20211003:
+	Commit a599f9f7620b deleted the variable called nfs_maxcopyrange
+	from nfscommon.ko, since it no longer needs to be global.  As such,
+	the other nfs modules must be rebuilt from up to date sources.
+	Bump __FreeBSD_version to 1300516 for this.
+
+20210823:
+	As of commit 622809b0868f OpenSSL no longer enables kernel TLS
+	by default.  Users can enable kernel TLS via the "KTLS" SSL
+	option.  This can be enabled globally by using a custom
+	OpenSSL config file via OPENSSL_CONF or via an
+	application-specific configuration option for applications
+	which permit setting SSL options via SSL_CONF_cmd(3).
+
+20210803:
+	Commits 9fb6e613373c and 9ec7dbf46b0a both changed the internal
+	KAPI between the NFS modules.  Bump __FreeBSD_version to 1300514.
+	All NFS modules must be rebuilt from sources.
+
+20210730:
+	Commit b69019c14cd8 removes pf's DIOCGETSTATESNV ioctl.
+	As of be70c7a50d32 it is no longer used by userspace, but it does mean
+	users may not be able to enumerate pf states if they update the kernel
+	past c021ff986e2b without first updating userspace past be70c7a50d32.
+
 20210718:
 	Bump __FreeBSD_version to 1300512 after merging LinuxKPI, OFED,
 	net80211, and driver changes in order to support building
