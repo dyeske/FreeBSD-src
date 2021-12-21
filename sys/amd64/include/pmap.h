@@ -535,6 +535,17 @@ void	pmap_kasan_enter(vm_offset_t);
 void	pmap_kmsan_enter(vm_offset_t);
 #endif
 
+/*
+ * Returns a pointer to a set of CPUs on which the pmap is currently active.
+ * Note that the set can be modified without any mutual exclusion, so a copy
+ * must be made if a stable value is required.
+ */
+static __inline volatile cpuset_t *
+pmap_invalidate_cpu_mask(pmap_t pmap)
+{
+	return (&pmap->pm_active);
+}
+
 #endif /* _KERNEL */
 
 /* Return various clipped indexes for a given VA */

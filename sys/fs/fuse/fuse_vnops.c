@@ -516,8 +516,9 @@ fuse_vnop_bmap(struct vop_bmap_args *ap)
 	struct fuse_bmap_in *fbi;
 	struct fuse_bmap_out *fbo;
 	struct fuse_data *data;
+	struct fuse_vnode_data *fvdat = VTOFUD(vp);
 	uint64_t biosize;
-	off_t filesize;
+	off_t fsize;
 	daddr_t lbn = ap->a_bn;
 	daddr_t *pbn = ap->a_bnp;
 	int *runp = ap->a_runp;
@@ -550,10 +551,21 @@ fuse_vnop_bmap(struct vop_bmap_args *ap)
 	 */
 	if (runb != NULL)
 		*runb = MIN(lbn, maxrun);
-	if (runp != NULL) {
-		error = fuse_vnode_size(vp, &filesize, td->td_ucred, td);
+	if (runp != NULL && maxrun == 0)
+		*runp = 0;
+	else if (runp != NULL) {
+		/*
+		 * If the file's size is cached, use that value to calculate
+		 * runp, even if the cache is expired.  runp is only advisory,
+		 * and the risk of getting it wrong is not worth the cost of
+		 * another upcall.
+		 */
+		if (fvdat->cached_attrs.va_size != VNOVAL)
+			fsize = fvdat->cached_attrs.va_size;
+		else
+			error = fuse_vnode_size(vp, &fsize, td->td_ucred, td);
 		if (error == 0)
-			*runp = MIN(MAX(0, filesize / (off_t)biosize - lbn - 1),
+			*runp = MIN(MAX(0, fsize / (off_t)biosize - lbn - 1),
 				    maxrun);
 		else
 			*runp = 0;
@@ -601,6 +613,7 @@ fuse_vnop_close(struct vop_close_args *ap)
 	int fflag = ap->a_fflag;
 	struct thread *td = ap->a_td;
 	pid_t pid = td->td_proc->p_pid;
+	struct fuse_vnode_data *fvdat = VTOFUD(vp);
 	int err = 0;
 
 	if (fuse_isdeadfs(vp))
@@ -611,8 +624,15 @@ fuse_vnop_close(struct vop_close_args *ap)
 		return 0;
 
 	err = fuse_flush(vp, cred, pid, fflag);
+	if (err == 0 && (fvdat->flag & FN_ATIMECHANGE)) {
+		struct vattr vap;
+
+		VATTR_NULL(&vap);
+		vap.va_atime = fvdat->cached_attrs.va_atime;
+		err = fuse_internal_setattr(vp, &vap, td, NULL);
+	}
 	/* TODO: close the file handle, if we're sure it's no longer used */
-	if ((VTOFUD(vp)->flag & FN_SIZECHANGE) != 0) {
+	if ((fvdat->flag & FN_SIZECHANGE) != 0) {
 		fuse_vnode_savesize(vp, cred, td->td_proc->p_pid);
 	}
 	return err;
@@ -638,6 +658,7 @@ fuse_vnop_copy_file_range(struct vop_copy_file_range_args *ap)
 	struct vnode *invp = ap->a_invp;
 	struct vnode *outvp = ap->a_outvp;
 	struct mount *mp = vnode_mount(invp);
+	struct fuse_vnode_data *outfvdat = VTOFUD(outvp);
 	struct fuse_dispatcher fdi;
 	struct fuse_filehandle *infufh, *outfufh;
 	struct fuse_copy_file_range_in *fcfri;
@@ -719,6 +740,8 @@ fuse_vnop_copy_file_range(struct vop_copy_file_range_args *ap)
 		*ap->a_inoffp += fwo->size;
 		*ap->a_outoffp += fwo->size;
 		fuse_internal_clear_suid_on_write(outvp, outcred, td);
+		if (*ap->a_outoffp > outfvdat->cached_attrs.va_size)
+			fuse_vnode_setsize(outvp, *ap->a_outoffp, false);
 	}
 	fdisp_destroy(&fdi);
 
@@ -895,7 +918,7 @@ fuse_vnop_create(struct vop_create_args *ap)
 	}
 	ASSERT_VOP_ELOCKED(*vpp, "fuse_vnop_create");
 	fuse_internal_cache_attrs(*vpp, &feo->attr, feo->attr_valid,
-		feo->attr_valid_nsec, NULL);
+		feo->attr_valid_nsec, NULL, true);
 
 	fuse_filehandle_init(*vpp, FUFH_RDWR, NULL, td, cred, foo);
 	fuse_vnode_open(*vpp, foo->open_flags, td);
@@ -1151,7 +1174,7 @@ fuse_vnop_link(struct vop_link_args *ap)
 		 */
 		fuse_vnode_clear_attr_cache(tdvp);
 		fuse_internal_cache_attrs(vp, &feo->attr, feo->attr_valid,
-			feo->attr_valid_nsec, NULL);
+			feo->attr_valid_nsec, NULL, true);
 	}
 out:
 	fdisp_destroy(&fdi);
@@ -1274,7 +1297,6 @@ fuse_vnop_lookup(struct vop_lookup_args *ap)
 			break;
 
 		case ENOENT:		/* negative match */
-			getnanouptime(&now);
 			if (timespeccmp(&timeout, &now, <=)) {
 				/* Cache timeout */
 				cache_purge_negative(dvp);
@@ -1360,52 +1382,17 @@ fuse_vnop_lookup(struct vop_lookup_args *ap)
 			*vpp = dvp;
 		} else {
 			struct fuse_vnode_data *fvdat;
-			struct vattr *vap;
 
 			err = fuse_vnode_get(vnode_mount(dvp), feo, nid, dvp,
 			    &vp, cnp, vtyp);
 			if (err)
 				goto out;
 			*vpp = vp;
-
-			/*
-			 * In the case where we are looking up a FUSE node
-			 * represented by an existing cached vnode, and the
-			 * true size reported by FUSE_LOOKUP doesn't match
-			 * the vnode's cached size, then any cached writes
-			 * beyond the file's current size are lost.
-			 *
-			 * We can get here:
-			 * * following attribute cache expiration, or
-			 * * due a bug in the daemon, or
-			 */
 			fvdat = VTOFUD(vp);
-			if (vnode_isreg(vp) &&
-			    ((filesize != fvdat->cached_attrs.va_size &&
-			      fvdat->flag & FN_SIZECHANGE) ||
-			     ((vap = VTOVA(vp)) &&
-			      filesize != vap->va_size)))
-			{
-				fvdat->flag &= ~FN_SIZECHANGE;
-				/*
-				 * The server changed the file's size even
-				 * though we had it cached, or had dirty writes
-				 * in the WB cache!
-				 */
-				fuse_warn(data, FSESS_WARN_CACHE_INCOHERENT,
-				    "cache incoherent!  "
-				    "To prevent "
-				    "data corruption, disable the data cache "
-				    "by mounting with -o direct_io, or as "
-				    "directed otherwise by your FUSE server's "
-				    "documentation.");
-				int iosize = fuse_iosize(vp);
-				v_inval_buf_range(vp, 0, INT64_MAX, iosize);
-			}
 
 			MPASS(feo != NULL);
 			fuse_internal_cache_attrs(*vpp, &feo->attr,
-				feo->attr_valid, feo->attr_valid_nsec, NULL);
+				feo->attr_valid, feo->attr_valid_nsec, NULL, true);
 			fuse_validity_2_bintime(feo->entry_valid,
 				feo->entry_valid_nsec,
 				&fvdat->entry_cache_timeout);

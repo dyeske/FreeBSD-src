@@ -639,8 +639,17 @@ newnfs_request(struct nfsrv_descript *nd, struct nfsmount *nmp,
 	if (nrp->nr_client == NULL)
 		newnfs_connect(nmp, nrp, cred, td, 0, false, &nrp->nr_client);
 
+	/*
+	 * If the "nconnect" mount option was specified and this RPC is
+	 * one that can have a large RPC message and is being done through
+	 * the NFS/MDS server, use an additional connection. (When the RPC is
+	 * being done through the server/MDS, nrp == &nmp->nm_sockreq.)
+	 * The "nconnect" mount option normally has minimal effect when the
+	 * "pnfs" mount option is specified, since only Readdir RPCs are
+	 * normally done through the NFS/MDS server.
+	 */
 	nextconn_set = false;
-	if (nmp != NULL && nmp->nm_aconnect > 0 &&
+	if (nmp != NULL && nmp->nm_aconnect > 0 && nrp == &nmp->nm_sockreq &&
 	    (nd->nd_procnum == NFSPROC_READ ||
 	     nd->nd_procnum == NFSPROC_READDIR ||
 	     nd->nd_procnum == NFSPROC_READDIRPLUS ||
@@ -1029,6 +1038,18 @@ tryagain:
 					tl += NFSX_V4SESSIONID / NFSX_UNSIGNED;
 					retseq = fxdr_unsigned(uint32_t, *tl++);
 					slot = fxdr_unsigned(int, *tl++);
+					if ((nd->nd_flag & ND_HASSLOTID) != 0) {
+						if (slot != nd->nd_slotid) {
+							printf("newnfs_request:"
+							    " Wrong session "
+							    "slot=%d\n", slot);
+							slot = nd->nd_slotid;
+						}
+					} else if (slot != 0) {
+						printf("newnfs_request: Bad "
+						    "session slot=%d\n", slot);
+						slot = 0;
+					}
 					freeslot = slot;
 					if (retseq != sep->nfsess_slotseq[slot])
 						printf("retseq diff 0x%x\n",

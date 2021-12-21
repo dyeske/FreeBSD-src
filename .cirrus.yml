@@ -14,10 +14,19 @@ env:
   CIRRUS_CLONE_DEPTH: 1
 
 task:
-  name: World and kernel amd64 build and boot smoke test
+  matrix:
+  - name: World and kernel amd64 build and boot smoke test
+    env:
+      TARGET: amd64
+      TARGET_ARCH: amd64
+  - name: World and kernel arm64 build and boot smoke test
+    trigger_type: manual
+    env:
+      TARGET: arm64
+      TARGET_ARCH: aarch64
   timeout_in: 120m
   install_script:
-  - sh .cirrus-ci/pkg-install.sh qemu uefi-edk2-qemu-x86_64 llvm11
+  - sh .cirrus-ci/pkg-install.sh qemu llvm11
   setup_script:
   - uname -a
   - df -m
