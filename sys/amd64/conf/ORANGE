@@ -1,0 +1,154 @@
+#
+# GENERIC-NODEBUG -- WITNESS and INVARIANTS free kernel configuration file
+#		     for FreeBSD/amd64
+#
+# This configuration file removes several debugging options, including
+# WITNESS and INVARIANTS checking, which are known to have significant
+# performance impact on running systems.  When benchmarking new features
+# this kernel should be used instead of the standard GENERIC.
+# This kernel configuration should never appear outside of the HEAD
+# of the FreeBSD tree.
+#
+# For more information on this file, please read the config(5) manual page,
+# and/or the handbook section on Kernel Configuration Files:
+#
+#    https://www.FreeBSD.org/doc/en_US.ISO8859-1/books/handbook/kernelconfig-config.html
+#
+# The handbook is also available locally in /usr/share/doc/handbook
+# if you've installed the doc distribution, otherwise always see the
+# FreeBSD World Wide Web server (https://www.FreeBSD.org/) for the
+# latest information.
+#
+# An exhaustive list of options and more detailed explanations of the
+# device lines is also present in the ../../conf/NOTES and NOTES files.
+# If you are in doubt as to the purpose or necessity of a line, check first
+# in NOTES.
+#
+# $FreeBSD: head/sys/amd64/conf/GENERIC-NODEBUG 359829 2020-04-12 18:04:20Z cem $
+
+include GENERIC
+
+ident   ORANGE
+
+nooptions       INVARIANTS
+nooptions       INVARIANT_SUPPORT
+nooptions       WITNESS
+nooptions       WITNESS_SKIPSPIN
+nooptions       BUF_TRACKING
+nooptions       DEADLKRES
+nooptions       FULL_BUF_TRACKING
+nooptions       COVERAGE
+nooptions       KCOV
+nooptions       MALLOC_DEBUG_MAXZONES
+nooptions       QUEUE_MACRO_DEBUG_TRASH
+options 	COMPAT_FREEBSD32	# Compatible with i386 binaries
+options 	COMPAT_FREEBSD11		# Compatible with FreeBSD7
+options 	COMPAT_FREEBSD12		# Compatible with FreeBSD7
+# Floppy drives
+nodevice		fdc
+
+# ATA controllers
+device		ahci			# AHCI-compatible SATA controllers
+device		ata			# Legacy ATA/SATA controllers
+device		mvs			# Marvell 88SX50XX/88SX60XX/88SX70XX/SoC SATA
+nodevice		siis			# SiliconImage SiI3124/SiI3132/SiI3531 SATA
+
+# SCSI Controllers
+nodevice		ahc			# AHA2940 and onboard AIC7xxx devices
+nodevice		ahd			# AHA39320/29320 and onboard AIC79xx devices
+nodevice		esp			# AMD Am53C974 (Tekram DC-390(T))
+nodevice		hptiop			# Highpoint RocketRaid 3xxx series
+nodevice		isp			# Qlogic family
+#device		ispfw			# Firmware for QLogic HBAs- normally a module
+nodevice		mpt			# LSI-Logic MPT-Fusion
+nodevice		mps			# LSI-Logic MPT-Fusion 2
+nodevice		mpr			# LSI-Logic MPT-Fusion 3
+nodevice		sym			# NCR/Symbios Logic
+nodevice		isci			# Intel C600 SAS controller
+nodevice		ocs_fc			# Emulex FC adapters
+device		pvscsi			# VMware PVSCSI
+
+# RAID controllers interfaced to the SCSI subsystem
+nodevice          amr                     # AMI MegaRAID
+nodevice          arcmsr                  # Areca SATA II RAID
+nodevice          ciss                    # Compaq Smart RAID 5*
+nodevice          iir                     # Intel Integrated RAID
+nodevice          ips                     # IBM (Adaptec) ServeRAID
+nodevice          mly                     # Mylex AcceleRAID/eXtremeRAID
+nodevice          twa                     # 3ware 9000 series PATA/SATA RAID
+nodevice          smartpqi                # Microsemi smartpqi driver
+nodevice          tws                     # LSI 3ware 9750 SATA+SAS 6Gb/s RAID controller
+
+# RAID controllers
+nodevice          aac                     # Adaptec FSA RAID
+nodevice          aacp                    # SCSI passthrough for aac (requires CAM)
+nodevice          aacraid                 # Adaptec by PMC RAID
+nodevice          ida                     # Compaq Smart RAID
+nodevice          mfi                     # LSI MegaRAID SAS
+nodevice          mlx                     # Mylex DAC960 family
+nodevice          mrsas                   # LSI/Avago MegaRAID SAS/SATA, 6Gb/s and 12Gb/s
+nodevice          pmspcv                  # PMC-Sierra SAS/SATA Controller driver
+#XXX pointer/int warnings
+#device         pst                     # Promise Supertrak SX6000
+nodevice          twe                     # 3ware ATA RAID
+
+# PCCARD (PCMCIA) support
+# PCMCIA and cardbus bridge support
+nodevice		cbb			# cardbus (yenta) bridge
+nodevice		pccard			# PC Card (16-bit) bus
+nodevice		cardbus			# CardBus (32-bit) bus
+
+# Parallel port
+nodevice		ppc
+nodevice		ppbus			# Parallel port bus (required)
+nodevice		lpt			# Printer
+nodevice		ppi			# Parallel port interface device
+#device		vpo			# Requires scbus and da
+
+# PCI/PCI-X/PCIe Ethernet NICs that use iflib infrastructure
+device          iflib
+nodevice          em                      # Intel PRO/1000 Gigabit Ethernet Family
+nodevice          igc                     # Intel I225 2.5G Ethernet
+nodevice          ix                      # Intel PRO/10GbE PCIE PF Ethernet
+nodevice          ixv                     # Intel PRO/10GbE PCIE VF Ethernet
+nodevice          ixl                     # Intel 700 Series Physical Function
+nodevice          iavf                    # Intel Adaptive Virtual Function
+nodevice          ice                     # Intel 800 Series Physical Function
+nodevice          vmx                     # VMware VMXNET3 Ethernet
+nodevice          axp                     # AMD EPYC integrated NIC
+
+# Nvidia/Mellanox Connect-X 4 and later, Ethernet only
+# mlx5ib requires ibcore infra and is not included by default
+nodevice		mlx5			# Base driver
+nodevice		mlxfw			# Firmware update
+nodevice		mlx5en			# Ethernet driver
+
+nodevice		ae			# Attansic/Atheros L2 FastEthernet
+nodevice		age			# Attansic/Atheros L1 Gigabit Ethernet
+nodevice		alc			# Atheros AR8131/AR8132 Ethernet
+nodevice		ale			# Atheros AR8121/AR8113/AR8114 Ethernet
+nodevice		bce			# Broadcom BCM5706/BCM5708 Gigabit Ethernet
+nodevice		bfe			# Broadcom BCM440x 10/100 Ethernet
+nodevice		bge			# Broadcom BCM570xx Gigabit Ethernet
+nodevice		cas			# Sun Cassini/Cassini+ and NS DP83065 Saturn
+nodevice		dc			# DEC/Intel 21143 and various workalikes
+nodevice		et			# Agere ET1310 10/100/Gigabit Ethernet
+nodevice		fxp			# Intel EtherExpress PRO/100B (82557, 82558)
+nodevice		gem			# Sun GEM/Sun ERI/Apple GMAC
+nodevice		jme			# JMicron JMC250 Gigabit/JMC260 Fast Ethernet
+nodevice		lge			# Level 1 LXT1001 gigabit Ethernet
+nodevice		msk			# Marvell/SysKonnect Yukon II Gigabit Ethernet
+nodevice		nfe			# nVidia nForce MCP on-board Ethernet
+nodevice		nge			# NatSemi DP83820 gigabit Ethernet
+device		re			# RealTek 8139C+/8169/8169S/8110S
+device		rl			# RealTek 8129/8139
+nodevice		sge			# Silicon Integrated Systems SiS190/191
+nodevice		sis			# Silicon Integrated Systems SiS 900/SiS 7016
+nodevice		sk			# SysKonnect SK-984x & SK-982x gigabit Ethernet
+nodevice		ste			# Sundance ST201 (D-Link DFE-550TX)
+nodevice		stge			# Sundance/Tamarack TC9021 gigabit Ethernet
+nodevice		vge			# VIA VT612x gigabit Ethernet
+nodevice		vr			# VIA Rhine, Rhine II
+nodevice		xl			# 3Com 3c90x (``Boomerang'', ``Cyclone'')
+
+
