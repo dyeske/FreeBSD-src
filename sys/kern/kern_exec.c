@@ -119,7 +119,6 @@ SYSCTL_INT(_kern, OID_AUTO, coredump_pack_vmmapinfo, CTLFLAG_RWTUN,
 
 static int sysctl_kern_ps_strings(SYSCTL_HANDLER_ARGS);
 static int sysctl_kern_usrstack(SYSCTL_HANDLER_ARGS);
-static int sysctl_kern_stacktop(SYSCTL_HANDLER_ARGS);
 static int sysctl_kern_stackprot(SYSCTL_HANDLER_ARGS);
 static int do_execve(struct thread *td, struct image_args *args,
     struct mac *mac_p, struct vmspace *oldvmspace);
@@ -133,10 +132,6 @@ SYSCTL_PROC(_kern, KERN_PS_STRINGS, ps_strings, CTLTYPE_ULONG|CTLFLAG_RD|
 SYSCTL_PROC(_kern, KERN_USRSTACK, usrstack, CTLTYPE_ULONG|CTLFLAG_RD|
     CTLFLAG_CAPRD|CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_usrstack, "LU",
     "Top of process stack");
-
-SYSCTL_PROC(_kern, KERN_STACKTOP, stacktop, CTLTYPE_ULONG | CTLFLAG_RD |
-    CTLFLAG_CAPRD | CTLFLAG_MPSAFE, NULL, 0, sysctl_kern_stacktop, "LU",
-    "Top of process stack with stack gap.");
 
 SYSCTL_PROC(_kern, OID_AUTO, stackprot, CTLTYPE_INT|CTLFLAG_RD|CTLFLAG_MPSAFE,
     NULL, 0, sysctl_kern_stackprot, "I",
@@ -165,19 +160,18 @@ static int
 sysctl_kern_ps_strings(SYSCTL_HANDLER_ARGS)
 {
 	struct proc *p;
-	int error;
+	vm_offset_t ps_strings;
 
 	p = curproc;
 #ifdef SCTL_MASK32
 	if (req->flags & SCTL_MASK32) {
 		unsigned int val;
-		val = (unsigned int)p->p_sysent->sv_psstrings;
-		error = SYSCTL_OUT(req, &val, sizeof(val));
-	} else
+		val = (unsigned int)PROC_PS_STRINGS(p);
+		return (SYSCTL_OUT(req, &val, sizeof(val)));
+	}
 #endif
-		error = SYSCTL_OUT(req, &p->p_sysent->sv_psstrings,
-		   sizeof(p->p_sysent->sv_psstrings));
-	return error;
+	ps_strings = PROC_PS_STRINGS(p);
+	return (SYSCTL_OUT(req, &ps_strings, sizeof(ps_strings)));
 }
 
 static int
@@ -196,31 +190,7 @@ sysctl_kern_usrstack(SYSCTL_HANDLER_ARGS)
 #endif
 		error = SYSCTL_OUT(req, &p->p_sysent->sv_usrstack,
 		    sizeof(p->p_sysent->sv_usrstack));
-	return (error);
-}
-
-static int
-sysctl_kern_stacktop(SYSCTL_HANDLER_ARGS)
-{
-	vm_offset_t stacktop;
-	struct proc *p;
-	int error;
-
-	p = curproc;
-#ifdef SCTL_MASK32
-	if (req->flags & SCTL_MASK32) {
-		unsigned int val;
-
-		val = (unsigned int)(p->p_sysent->sv_usrstack -
-		    p->p_vmspace->vm_stkgap);
-		error = SYSCTL_OUT(req, &val, sizeof(val));
-	} else
-#endif
-	{
-		stacktop = p->p_sysent->sv_usrstack - p->p_vmspace->vm_stkgap;
-		error = SYSCTL_OUT(req, &stacktop, sizeof(stacktop));
-	}
-	return (error);
+	return error;
 }
 
 static int
@@ -1239,9 +1209,6 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 	} else {
 		ssiz = maxssiz;
 	}
-	imgp->eff_stack_sz = lim_cur(curthread, RLIMIT_STACK);
-	if (ssiz < imgp->eff_stack_sz)
-		imgp->eff_stack_sz = ssiz;
 	stack_addr = sv->sv_usrstack - ssiz;
 	stack_prot = obj != NULL && imgp->stack_prot != 0 ?
 	    imgp->stack_prot : sv->sv_stackprot;
@@ -1661,21 +1628,6 @@ exec_args_get_begin_envv(struct image_args *args)
 	return (args->endp);
 }
 
-void
-exec_stackgap(struct image_params *imgp, uintptr_t *dp)
-{
-	struct proc *p = imgp->proc;
-
-	if (imgp->sysent->sv_stackgap == NULL ||
-	    (p->p_fctl0 & (NT_FREEBSD_FCTL_ASLR_DISABLE |
-	    NT_FREEBSD_FCTL_ASG_DISABLE)) != 0 ||
-	    (imgp->map_flags & MAP_ASLR) == 0) {
-		p->p_vmspace->vm_stkgap = 0;
-		return;
-	}
-	p->p_vmspace->vm_stkgap = imgp->sysent->sv_stackgap(imgp, dp);
-}
-
 /*
  * Copy strings out to the new process address space, constructing new arg
  * and env vector tables. Return a pointer to the base so that it can be used
@@ -1690,37 +1642,25 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	uintptr_t destp, ustringp;
 	struct ps_strings *arginfo;
 	struct proc *p;
+	struct sysentvec *sysent;
 	size_t execpath_len;
-	int error, szsigcode, szps;
+	int error, szsigcode;
 	char canary[sizeof(long) * 8];
 
-	szps = sizeof(pagesizes[0]) * MAXPAGESIZES;
-	/*
-	 * Calculate string base and vector table pointers.
-	 * Also deal with signal trampoline code for this exec type.
-	 */
-	if (imgp->execpath != NULL && imgp->auxargs != NULL)
-		execpath_len = strlen(imgp->execpath) + 1;
-	else
-		execpath_len = 0;
 	p = imgp->proc;
-	szsigcode = 0;
-	arginfo = (struct ps_strings *)p->p_sysent->sv_psstrings;
-	imgp->ps_strings = arginfo;
-	if (p->p_sysent->sv_sigcode_base == 0) {
-		if (p->p_sysent->sv_szsigcode != NULL)
-			szsigcode = *(p->p_sysent->sv_szsigcode);
-	}
-	destp =	(uintptr_t)arginfo;
+	sysent = p->p_sysent;
+
+	destp =	PROC_PS_STRINGS(p);
+	arginfo = imgp->ps_strings = (void *)destp;
 
 	/*
-	 * install sigcode
+	 * Install sigcode.
 	 */
-	if (szsigcode != 0) {
+	if (sysent->sv_sigcode_base == 0 && sysent->sv_szsigcode != NULL) {
+		szsigcode = *(sysent->sv_szsigcode);
 		destp -= szsigcode;
 		destp = rounddown2(destp, sizeof(void *));
-		error = copyout(p->p_sysent->sv_sigcode, (void *)destp,
-		    szsigcode);
+		error = copyout(sysent->sv_sigcode, (void *)destp, szsigcode);
 		if (error != 0)
 			return (error);
 	}
@@ -1728,7 +1668,8 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	/*
 	 * Copy the image path for the rtld.
 	 */
-	if (execpath_len != 0) {
+	if (imgp->execpath != NULL && imgp->auxargs != NULL) {
+		execpath_len = strlen(imgp->execpath) + 1;
 		destp -= execpath_len;
 		destp = rounddown2(destp, sizeof(void *));
 		imgp->execpathp = (void *)destp;
@@ -1751,13 +1692,13 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	/*
 	 * Prepare the pagesizes array.
 	 */
-	destp -= szps;
+	imgp->pagesizeslen = sizeof(pagesizes[0]) * MAXPAGESIZES;
+	destp -= imgp->pagesizeslen;
 	destp = rounddown2(destp, sizeof(void *));
 	imgp->pagesizes = (void *)destp;
-	error = copyout(pagesizes, imgp->pagesizes, szps);
+	error = copyout(pagesizes, imgp->pagesizes, imgp->pagesizeslen);
 	if (error != 0)
 		return (error);
-	imgp->pagesizeslen = szps;
 
 	/*
 	 * Allocate room for the argument and environment strings.
@@ -1765,8 +1706,6 @@ exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	destp -= ARG_MAX - imgp->args->stringspace;
 	destp = rounddown2(destp, sizeof(void *));
 	ustringp = destp;
-
-	exec_stackgap(imgp, &destp);
 
 	if (imgp->auxargs) {
 		/*

@@ -937,7 +937,11 @@ freebsd32_ptrace(struct thread *td, struct freebsd32_ptrace_args *uap)
 		struct ptrace_sc_ret32 psr;
 	} r32;
 	void *addr;
-	int data, error = 0, i;
+	int data, error, i;
+
+	if (!allow_ptrace)
+		return (ENOSYS);
+	error = 0;
 
 	AUDIT_ARG_PID(uap->pid);
 	AUDIT_ARG_CMD(uap->req);
@@ -3340,6 +3344,7 @@ syscall32_helper_unregister(struct syscall_helper_data *sd)
 int
 freebsd32_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 {
+	struct sysentvec *sysent;
 	int argc, envc, i;
 	u_int32_t *vectp;
 	char *stringp;
@@ -3350,30 +3355,20 @@ freebsd32_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	size_t execpath_len;
 	int error, szsigcode;
 
-	/*
-	 * Calculate string base and vector table pointers.
-	 * Also deal with signal trampoline code for this exec type.
-	 */
-	if (imgp->execpath != NULL && imgp->auxargs != NULL)
-		execpath_len = strlen(imgp->execpath) + 1;
-	else
-		execpath_len = 0;
-	arginfo = (struct freebsd32_ps_strings *)curproc->p_sysent->
-	    sv_psstrings;
+	sysent = imgp->sysent;
+
+	arginfo = (struct freebsd32_ps_strings *)PROC_PS_STRINGS(imgp->proc);
 	imgp->ps_strings = arginfo;
-	if (imgp->proc->p_sysent->sv_sigcode_base == 0)
-		szsigcode = *(imgp->proc->p_sysent->sv_szsigcode);
-	else
-		szsigcode = 0;
 	destp =	(uintptr_t)arginfo;
 
 	/*
-	 * install sigcode
+	 * Install sigcode.
 	 */
-	if (szsigcode != 0) {
+	if (sysent->sv_sigcode_base == 0) {
+		szsigcode = *sysent->sv_szsigcode;
 		destp -= szsigcode;
 		destp = rounddown2(destp, sizeof(uint32_t));
-		error = copyout(imgp->proc->p_sysent->sv_sigcode, (void *)destp,
+		error = copyout(sysent->sv_sigcode, (void *)destp,
 		    szsigcode);
 		if (error != 0)
 			return (error);
@@ -3382,7 +3377,8 @@ freebsd32_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	/*
 	 * Copy the image path for the rtld.
 	 */
-	if (execpath_len != 0) {
+	if (imgp->execpath != NULL && imgp->auxargs != NULL) {
+		execpath_len = strlen(imgp->execpath) + 1;
 		destp -= execpath_len;
 		imgp->execpathp = (void *)destp;
 		error = copyout(imgp->execpath, imgp->execpathp, execpath_len);
@@ -3420,8 +3416,6 @@ freebsd32_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 	destp -= ARG_MAX - imgp->args->stringspace;
 	destp = rounddown2(destp, sizeof(uint32_t));
 	ustringp = destp;
-
-	exec_stackgap(imgp, &destp);
 
 	if (imgp->auxargs) {
 		/*

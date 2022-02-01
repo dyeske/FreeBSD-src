@@ -164,6 +164,7 @@ fuse_vnode_init(struct vnode *vp, struct fuse_vnode_data *fvdat,
 	}
 	vp->v_type = vtyp;
 	vp->v_data = fvdat;
+	timespecclear(&fvdat->last_local_modify);
 
 	counter_u64_add(fuse_node_count, 1);
 }
@@ -212,24 +213,27 @@ fuse_vnode_alloc(struct mount *mp,
 		return (err);
 
 	if (*vpp) {
-		if ((*vpp)->v_type != vtyp) {
+		if ((*vpp)->v_type == vtyp) {
+			/* Reuse a vnode that hasn't yet been reclaimed */
+			MPASS((*vpp)->v_data != NULL);
+			MPASS(VTOFUD(*vpp)->nid == nodeid);
+			SDT_PROBE2(fusefs, , node, trace, 1,
+				"vnode taken from hash");
+			return (0);
+		} else {
 			/*
-			 * STALE vnode!  This probably indicates a buggy
-			 * server, but it could also be the result of a race
-			 * between FUSE_LOOKUP and another client's
-			 * FUSE_UNLINK/FUSE_CREATE
+			 * The inode changed types!  If we get here, we can't
+			 * tell whether the inode's entry cache had expired
+			 * yet.  So this could be the result of a buggy server,
+			 * but more likely the server just reused an inode
+			 * number following an entry cache expiration.
 			 */
 			SDT_PROBE3(fusefs, , node, stale_vnode, *vpp, vtyp,
 				nodeid);
 			fuse_internal_vnode_disappear(*vpp);
+			vgone(*vpp);
 			lockmgr((*vpp)->v_vnlock, LK_RELEASE, NULL);
-			*vpp = NULL;
-			return (EAGAIN);
 		}
-		MPASS((*vpp)->v_data != NULL);
-		MPASS(VTOFUD(*vpp)->nid == nodeid);
-		SDT_PROBE2(fusefs, , node, trace, 1, "vnode taken from hash");
-		return (0);
 	}
 	fvdat = malloc(sizeof(*fvdat), M_FUSEVN, M_WAITOK | M_ZERO);
 	switch (vtyp) {
@@ -381,8 +385,10 @@ fuse_vnode_savesize(struct vnode *vp, struct ucred *cred, pid_t pid)
 	}
 	err = fdisp_wait_answ(&fdi);
 	fdisp_destroy(&fdi);
-	if (err == 0)
+	if (err == 0) {
+		getnanouptime(&fvdat->last_local_modify);
 		fvdat->flag &= ~FN_SIZECHANGE;
+	}
 
 	return err;
 }
@@ -441,9 +447,8 @@ fuse_vnode_setsize(struct vnode *vp, off_t newsize, bool from_server)
 		 * The FUSE server changed the file size behind our back.  We
 		 * should invalidate the entire cache.
 		 */
-		daddr_t left_lbn, end_lbn;
+		daddr_t end_lbn;
 
-		left_lbn = oldsize / iosize;
 		end_lbn = howmany(newsize, iosize);
 		v_inval_buf_range(vp, 0, end_lbn, iosize);
 	}

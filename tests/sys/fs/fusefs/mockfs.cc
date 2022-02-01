@@ -207,6 +207,14 @@ void MockFS::debug_request(const mockfs_buf_in &in, ssize_t buflen)
 			printf(" flags=%#x name=%s",
 				in.body.open.flags, name);
 			break;
+		case FUSE_FALLOCATE:
+			printf(" fh=%#" PRIx64 " offset=%" PRIu64
+				" length=%" PRIx64 " mode=%#x",
+				in.body.fallocate.fh,
+				in.body.fallocate.offset,
+				in.body.fallocate.length,
+				in.body.fallocate.mode);
+			break;
 		case FUSE_FLUSH:
 			printf(" fh=%#" PRIx64 " lock_owner=%" PRIu64,
 				in.body.flush.fh,
@@ -289,6 +297,15 @@ void MockFS::debug_request(const mockfs_buf_in &in, ssize_t buflen)
 				in.body.release.fh,
 				in.body.release.flags,
 				in.body.release.lock_owner);
+			break;
+		case FUSE_RENAME:
+			{
+				const char *src = (const char*)in.body.bytes +
+					sizeof(fuse_rename_in);
+				const char *dst = src + strlen(src) + 1;
+				printf(" src=%s newdir=%" PRIu64 " dst=%s",
+					src, in.body.rename.newdir, dst);
+			}
 			break;
 		case FUSE_SETATTR:
 			if (verbosity <= 1) {
@@ -675,6 +692,10 @@ void MockFS::audit_request(const mockfs_buf_in &in, ssize_t buflen) {
 		EXPECT_EQ(inlen, fih + sizeof(in.body.interrupt));
 		EXPECT_EQ((size_t)buflen, inlen);
 		break;
+	case FUSE_FALLOCATE:
+		EXPECT_EQ(inlen, fih + sizeof(in.body.fallocate));
+		EXPECT_EQ((size_t)buflen, inlen);
+		break;
 	case FUSE_BMAP:
 		EXPECT_EQ(inlen, fih + sizeof(in.body.bmap));
 		EXPECT_EQ((size_t)buflen, inlen);
@@ -690,7 +711,6 @@ void MockFS::audit_request(const mockfs_buf_in &in, ssize_t buflen) {
 		break;
 	case FUSE_NOTIFY_REPLY:
 	case FUSE_BATCH_FORGET:
-	case FUSE_FALLOCATE:
 	case FUSE_IOCTL:
 	case FUSE_POLL:
 	case FUSE_READDIRPLUS:
