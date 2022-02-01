@@ -58,10 +58,6 @@ options 	GEOM_RAID		# Soft RAID functionality.
 options 	GEOM_LABEL		# Provides labelization
 options 	EFIRT			# EFI Runtime Services support
 options 	COMPAT_FREEBSD32	# Compatible with i386 binaries
-options 	COMPAT_FREEBSD4		# Compatible with FreeBSD4
-options 	COMPAT_FREEBSD5		# Compatible with FreeBSD5
-options 	COMPAT_FREEBSD6		# Compatible with FreeBSD6
-options 	COMPAT_FREEBSD7		# Compatible with FreeBSD7
 options 	COMPAT_FREEBSD9		# Compatible with FreeBSD9
 options 	COMPAT_FREEBSD10	# Compatible with FreeBSD10
 options 	COMPAT_FREEBSD11	# Compatible with FreeBSD11
@@ -124,7 +120,6 @@ options		PCI_IOV			# PCI SR-IOV support
 options 	COMPAT_LINUXKPI
 
 # Floppy drives
-device		fdc
 
 # ATA controllers
 device		ahci			# AHCI-compatible SATA controllers
@@ -158,15 +153,6 @@ device		ses			# Enclosure Services (SES and SAF-TE)
 #device		ctl			# CAM Target Layer
 
 # RAID controllers interfaced to the SCSI subsystem
-device		amr			# AMI MegaRAID
-device		arcmsr			# Areca SATA II RAID
-device		ciss			# Compaq Smart RAID 5*
-device		iir			# Intel Integrated RAID
-device		ips			# IBM (Adaptec) ServeRAID
-device		mly			# Mylex AcceleRAID/eXtremeRAID
-device		twa			# 3ware 9000 series PATA/SATA RAID
-device		smartpqi		# Microsemi smartpqi driver
-device		tws			# LSI 3ware 9750 SATA+SAS 6Gb/s RAID controller
 
 # RAID controllers
 device		aac			# Adaptec FSA RAID
