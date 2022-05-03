@@ -1317,7 +1317,7 @@ ndaflush(void)
 
 		if (SCHEDULER_STOPPED()) {
 			/*
-			 * If we paniced with the lock held or the periph is not
+			 * If we panicked with the lock held or the periph is not
 			 * open, do not recurse.  Otherwise, call ndadump since
 			 * that avoids the sleeping cam_periph_getccb does if no
 			 * CCBs are available.
@@ -1353,6 +1353,9 @@ ndaflush(void)
 static void
 ndashutdown(void *arg, int howto)
 {
+
+	if ((howto & RB_NOSYNC) != 0)
+		return;
 
 	ndaflush();
 }
