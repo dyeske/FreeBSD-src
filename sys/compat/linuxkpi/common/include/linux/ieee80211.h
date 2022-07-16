@@ -130,9 +130,15 @@ enum wlan_ht_cap_sm_ps {
 #define	WLAN_KEY_LEN_CCMP			16
 #define	WLAN_KEY_LEN_GCMP_256			32
 
-/* 9.4.2.56.3, Table 9-163 Subfields of the A-MPDU Parameters field */
+/* 802.11-2020, 9.4.2.55.3, Table 9-185 Subfields of the A-MPDU Parameters field */
 enum ieee80211_min_mpdu_start_spacing {
 	IEEE80211_HT_MPDU_DENSITY_NONE		= 0,
+#if 0
+	IEEE80211_HT_MPDU_DENSITY_XXX		= 1,	/* 1/4 us */
+	IEEE80211_HT_MPDU_DENSITY_YYY		= 2,	/* 1/2 us */
+#endif
+	IEEE80211_HT_MPDU_DENSITY_1		= 3,	/* 1 us */
+	IEEE80211_HT_MPDU_DENSITY_2		= 4,	/* 2 us */
 	IEEE80211_HT_MPDU_DENSITY_4		= 5,	/* 4us */
 	IEEE80211_HT_MPDU_DENSITY_8		= 6,	/* 8us */
 	IEEE80211_HT_MPDU_DENSITY_16		= 7, 	/* 16us */
@@ -350,7 +356,7 @@ enum ieee80211_tx_rate_flags {
 
 #define	IEEE80211_HT_CTL_LEN	4
 
-struct ieee80211_hdr {		/* net80211::ieee80211_frame */
+struct ieee80211_hdr {		/* net80211::ieee80211_frame_addr4 */
         __le16		frame_control;
         __le16		duration_id;
 	uint8_t		addr1[ETH_ALEN];
@@ -358,6 +364,15 @@ struct ieee80211_hdr {		/* net80211::ieee80211_frame */
 	uint8_t		addr3[ETH_ALEN];
 	__le16		seq_ctrl;
 	uint8_t		addr4[ETH_ALEN];
+};
+
+struct ieee80211_hdr_3addr {	/* net80211::ieee80211_frame */
+        __le16		frame_control;
+        __le16		duration_id;
+	uint8_t		addr1[ETH_ALEN];
+	uint8_t		addr2[ETH_ALEN];
+	uint8_t		addr3[ETH_ALEN];
+	__le16		seq_ctrl;
 };
 
 struct ieee80211_vendor_ie {
@@ -460,6 +475,33 @@ enum ieee80211_status_code {
 	WLAN_STATUS_AUTH_TIMEOUT		= 16,	/* REJECTED_SEQUENCE_TIMEOUT */
 };
 
+/* 9.3.1.22 Trigger frame format; 80211ax-2021 */
+struct ieee80211_trigger {
+        __le16		frame_control;
+        __le16		duration_id;
+	uint8_t		ra[ETH_ALEN];
+	uint8_t		ta[ETH_ALEN];
+	__le64		common_info;		/* 8+ really */
+	uint8_t		variable[];
+};
+
+/* Table 9-29c-Trigger Type subfield encoding */
+enum {
+	IEEE80211_TRIGGER_TYPE_BASIC		= 0x0,
+#if 0
+	/* Not seen yet. */
+	BFRP					= 0x1,
+	MU-BAR					= 0x2,
+	MU-RTS					= 0x3,
+	BSRP					= 0x4,
+	GCR MU-BAR				= 0x5,
+	BQRP					= 0x6,
+	NFRP					= 0x7,
+	/* 0x8..0xf reserved */
+#endif
+	IEEE80211_TRIGGER_TYPE_MASK		= 0xf
+};
+
 /* net80211: IEEE80211_IS_CTL() */
 static __inline bool
 ieee80211_is_ctl(__le16 fc)
@@ -548,6 +590,17 @@ ieee80211_hdrlen(__le16 fc)
 	}
 
 	return (size);
+}
+
+static inline bool
+ieee80211_is_trigger(__le16 fc)
+{
+	__le16 v;
+
+	fc &= htole16(IEEE80211_FC0_SUBTYPE_MASK | IEEE80211_FC0_TYPE_MASK);
+	v = htole16(IEEE80211_FC0_SUBTYPE_TRIGGER | IEEE80211_FC0_TYPE_CTL);
+
+	return (fc == v);
 }
 
 #endif	/* _LINUXKPI_LINUX_IEEE80211_H */

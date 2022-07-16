@@ -87,7 +87,7 @@ static tc_opened_t	vtterm_opened;
 static tc_ioctl_t	vtterm_ioctl;
 static tc_mmap_t	vtterm_mmap;
 
-const struct terminal_class vt_termclass = {
+static const struct terminal_class vt_termclass = {
 	.tc_bell	= vtterm_bell,
 	.tc_cursor	= vtterm_cursor,
 	.tc_putchar	= vtterm_putchar,
@@ -202,7 +202,7 @@ SET_DECLARE(vt_drv_set, struct vt_driver);
 #define	_VTDEFH	MAX(100, PIXEL_HEIGHT(VT_FB_MAX_HEIGHT))
 #define	_VTDEFW	MAX(200, PIXEL_WIDTH(VT_FB_MAX_WIDTH))
 
-struct terminal	vt_consterm;
+static struct terminal	vt_consterm;
 static struct vt_window	vt_conswindow;
 #ifndef SC_NO_CONSDRAWN
 static term_char_t vt_consdrawn[PIXEL_HEIGHT(VT_FB_MAX_HEIGHT) * PIXEL_WIDTH(VT_FB_MAX_WIDTH)];
@@ -262,19 +262,9 @@ static struct vt_window	vt_conswindow = {
 	.vw_bell_pitch = VT_BELLPITCH,
 	.vw_bell_duration = VT_BELLDURATION,
 };
-struct terminal vt_consterm = {
-	.tm_class = &vt_termclass,
-	.tm_softc = &vt_conswindow,
-	.tm_flags = TF_CONS,
-};
-static struct consdev vt_consterm_consdev = {
-	.cn_ops = &termcn_cnops,
-	.cn_arg = &vt_consterm,
-	.cn_name = "ttyv0",
-};
 
 /* Add to set of consoles. */
-DATA_SET(cons_set, vt_consterm_consdev);
+TERMINAL_DECLARE_EARLY(vt_consterm, vt_termclass, &vt_conswindow);
 
 /*
  * Right after kmem is done to allow early drivers to use locking and allocate
@@ -603,7 +593,8 @@ vt_window_switch(struct vt_window *vw)
 		 * switch to console mode when panicking, making sure the panic
 		 * is readable (even when a GUI was using ttyv0).
 		 */
-		if ((kdb_active || panicstr) && vd->vd_driver->vd_postswitch)
+		if ((kdb_active || KERNEL_PANICKED()) &&
+		    vd->vd_driver->vd_postswitch)
 			vd->vd_driver->vd_postswitch(vd);
 		VT_UNLOCK(vd);
 		return (0);
@@ -2144,7 +2135,7 @@ vt_mouse_paste()
 	buf = VD_PASTEBUF(main_vd);
 	len /= sizeof(term_char_t);
 	for (i = 0; i < len; i++) {
-		if (buf[i] == '\0')
+		if (TCHAR_CHARACTER(buf[i]) == '\0')
 			continue;
 		terminal_input_char(main_vd->vd_curwindow->vw_terminal,
 		    buf[i]);
@@ -2296,8 +2287,7 @@ vt_mouse_event(int type, int x, int y, int event, int cnt, int mlevel)
 			VD_PASTEBUFSZ(vd) = len;
 		}
 		/* Request copy/paste buffer data, no more than `len' */
-		vtbuf_extract_marked(&vw->vw_buf, VD_PASTEBUF(vd),
-		    VD_PASTEBUFSZ(vd));
+		vtbuf_extract_marked(&vw->vw_buf, VD_PASTEBUF(vd), len);
 
 		VD_PASTEBUFLEN(vd) = len;
 

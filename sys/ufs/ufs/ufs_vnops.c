@@ -196,6 +196,44 @@ ufs_itimes(struct vnode *vp)
 	VI_UNLOCK(vp);
 }
 
+static int
+ufs_sync_nlink1(struct mount *mp)
+{
+	int error;
+
+	error = vfs_busy(mp, 0);
+	if (error == 0) {
+		VFS_SYNC(mp, MNT_WAIT);
+		vfs_unbusy(mp);
+		error = ERELOOKUP;
+	}
+	vfs_rel(mp);
+	return (error);
+}
+
+static int
+ufs_sync_nlink(struct vnode *vp, struct vnode *vp1)
+{
+	struct inode *ip;
+	struct mount *mp;
+	int error;
+
+	ip = VTOI(vp);
+	if (ip->i_nlink < UFS_LINK_MAX)
+		return (0);
+	if (!DOINGSOFTDEP(vp) || ip->i_effnlink >= UFS_LINK_MAX)
+		return (EMLINK);
+
+	mp = vp->v_mount;
+	vfs_ref(mp);
+	VOP_UNLOCK(vp);
+	if (vp1 != NULL)
+		VOP_UNLOCK(vp1);
+	error = ufs_sync_nlink1(mp);
+	vn_lock_pair(vp, false, vp1, false);
+	return (error);
+}
+
 /*
  * Create a regular file
  */
@@ -1086,13 +1124,13 @@ ufs_link(ap)
 		error = EINVAL;
 		goto out;
 	}
-	ip = VTOI(vp);
-	if (ip->i_nlink >= UFS_LINK_MAX) {
-		error = EMLINK;
+	error = ufs_sync_nlink(vp, tdvp);
+	if (error != 0)
 		goto out;
-	}
+	ip = VTOI(vp);
+
 	/*
-	 * The file may have been removed after namei droped the original
+	 * The file may have been removed after namei dropped the original
 	 * lock.
 	 */
 	if (ip->i_effnlink == 0) {
@@ -1373,18 +1411,8 @@ relock:
 	     (tvp != NULL && (seqc_in_modify(tvp_s) ||
 	     !vn_seqc_consistent(tvp, tvp_s))))) {
 		error = softdep_prerename(fdvp, fvp, tdvp, tvp);
-		if (error != 0) {
-			if (error == ERELOOKUP) {
-				fdvp_s = vn_seqc_read_any(fdvp);
-				fvp_s = vn_seqc_read_any(fvp);
-				tdvp_s = vn_seqc_read_any(tdvp);
-				if (tvp != NULL)
-					tvp_s = vn_seqc_read_any(tvp);
-				atomic_add_int(&rename_restarts, 1);
-				goto relock;
-			}
+		if (error != 0)
 			goto releout;
-		}
 	}
 
 	fdp = VTOI(fdvp);
@@ -1411,8 +1439,29 @@ relock:
 	newparent = 0;
 	ino = fip->i_number;
 	if (fip->i_nlink >= UFS_LINK_MAX) {
-		error = EMLINK;
-		goto unlockout;
+		if (!DOINGSOFTDEP(fvp) || fip->i_effnlink >= UFS_LINK_MAX) {
+			error = EMLINK;
+			goto unlockout;
+		}
+		vfs_ref(mp);
+		MPASS(!want_seqc_end);
+		if (checkpath_locked) {
+			sx_xunlock(&VFSTOUFS(mp)->um_checkpath_lock);
+			checkpath_locked = false;
+		}
+		VOP_UNLOCK(fdvp);
+		VOP_UNLOCK(fvp);
+		vref(tdvp);
+		if (tvp != NULL)
+			vref(tvp);
+		VOP_VPUT_PAIR(tdvp, &tvp, true);
+		error = ufs_sync_nlink1(mp);
+		vrele(fdvp);
+		vrele(fvp);
+		vrele(tdvp);
+		if (tvp != NULL)
+			vrele(tvp);
+		return (error);
 	}
 	if ((fip->i_flags & (NOUNLINK | IMMUTABLE | APPEND))
 	    || (fdp->i_flags & APPEND)) {
@@ -1526,8 +1575,41 @@ relock:
 			 * .. is rewritten below.
 			 */
 			if (tdp->i_nlink >= UFS_LINK_MAX) {
-				error = EMLINK;
-				goto bad;
+				fip->i_effnlink--;
+				fip->i_nlink--;
+				DIP_SET(fip, i_nlink, fip->i_nlink);
+				UFS_INODE_SET_FLAG(fip, IN_CHANGE);
+				if (DOINGSOFTDEP(fvp))
+					softdep_revert_link(tdp, fip);
+				if (!DOINGSOFTDEP(tdvp) ||
+				    tdp->i_effnlink >= UFS_LINK_MAX) {
+					error = EMLINK;
+					goto unlockout;
+				}
+				MPASS(want_seqc_end);
+				if (tvp != NULL)
+					vn_seqc_write_end(tvp);
+				vn_seqc_write_end(tdvp);
+				vn_seqc_write_end(fvp);
+				vn_seqc_write_end(fdvp);
+				want_seqc_end = false;
+				vfs_ref(mp);
+				MPASS(checkpath_locked);
+				sx_xunlock(&VFSTOUFS(mp)->um_checkpath_lock);
+				checkpath_locked = false;
+				VOP_UNLOCK(fdvp);
+				VOP_UNLOCK(fvp);
+				vref(tdvp);
+				if (tvp != NULL)
+					vref(tvp);
+				VOP_VPUT_PAIR(tdvp, &tvp, true);
+				error = ufs_sync_nlink1(mp);
+				vrele(fdvp);
+				vrele(fvp);
+				vrele(tdvp);
+				if (tvp != NULL)
+					vrele(tvp);
+				return (error);
 			}
 		}
 		ufs_makedirentry(fip, tcnp, &newdir);
@@ -1950,10 +2032,9 @@ ufs_mkdir(ap)
 		panic("ufs_mkdir: no name");
 #endif
 	dp = VTOI(dvp);
-	if (dp->i_nlink >= UFS_LINK_MAX) {
-		error = EMLINK;
+	error = ufs_sync_nlink(dvp, NULL);
+	if (error != 0)
 		goto out;
-	}
 	dmode = vap->va_mode & 0777;
 	dmode |= IFDIR;
 
