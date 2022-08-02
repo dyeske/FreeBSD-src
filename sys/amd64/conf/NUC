@@ -112,6 +112,7 @@ device		cpufreq
 
 # Bus support.
 device		acpi
+device		smbios
 options 	IOMMU
 device		pci
 options 	PCI_HP			# PCI-Express native HotPlug
@@ -119,7 +120,14 @@ options		PCI_IOV			# PCI SR-IOV support
 
 options 	COMPAT_LINUXKPI
 
+# Enable support for the kernel PLL to use an external PPS signal,
+# under supervision of [x]ntpd(8)
+# More info in ntpd documentation: http://www.eecis.udel.edu/~ntp
+
+options 	PPS_SYNC
+
 # Floppy drives
+device		fdc
 
 # ATA controllers
 device		ahci			# AHCI-compatible SATA controllers
@@ -155,17 +163,8 @@ device		ses			# Enclosure Services (SES and SAF-TE)
 # RAID controllers interfaced to the SCSI subsystem
 
 # RAID controllers
-device		aac			# Adaptec FSA RAID
-device		aacp			# SCSI passthrough for aac (requires CAM)
-device		aacraid			# Adaptec by PMC RAID
-device		ida			# Compaq Smart RAID
-device		mfi			# LSI MegaRAID SAS
-device		mlx			# Mylex DAC960 family
-device		mrsas			# LSI/Avago MegaRAID SAS/SATA, 6Gb/s and 12Gb/s
-device		pmspcv			# PMC-Sierra SAS/SATA Controller driver
 #XXX pointer/int warnings
 #device		pst			# Promise Supertrak SX6000
-device		twe			# 3ware ATA RAID
 
 # NVM Express (NVMe) support
 device		nvme			# base NVMe driver
@@ -186,11 +185,11 @@ options 	VESA			# Add support for VESA BIOS Extensions (VBE)
 
 device		splash			# Splash screen and screen saver support
 
-# syscons is the default console driver, resembling an SCO console
+# syscons is the legacy console driver, resembling an SCO console
 device		sc
 options 	SC_PIXEL_MODE		# add support for the raster text mode
 
-# vt is the new video console driver
+# vt is the default video console driver
 device		vt
 device		vt_vga
 device		vt_efifb
@@ -200,18 +199,11 @@ device		agp			# support several AGP chipsets
 
 # PCCARD (PCMCIA) support
 # PCMCIA and cardbus bridge support
-device		cbb			# cardbus (yenta) bridge
-device		pccard			# PC Card (16-bit) bus
-device		cardbus			# CardBus (32-bit) bus
 
 # Serial (COM) ports
 device		uart			# Generic UART driver
 
 # Parallel port
-device		ppc
-device		ppbus			# Parallel port bus (required)
-device		lpt			# Printer
-device		ppi			# Parallel port interface device
 #device		vpo			# Requires scbus and da
 
 device		puc			# Multi I/O cards and multi-channel UARTs
@@ -219,56 +211,20 @@ device		puc			# Multi I/O cards and multi-channel UARTs
 # PCI/PCI-X/PCIe Ethernet NICs that use iflib infrastructure
 device		iflib
 device		em			# Intel PRO/1000 Gigabit Ethernet Family
-device		igc			# Intel I225 2.5G Ethernet
-device		ix			# Intel PRO/10GbE PCIE PF Ethernet
-device		ixv			# Intel PRO/10GbE PCIE VF Ethernet
-device		ixl			# Intel 700 Series Physical Function
-device		iavf			# Intel Adaptive Virtual Function
-device		ice			# Intel 800 Series Physical Function
-device		vmx			# VMware VMXNET3 Ethernet
-device		axp			# AMD EPYC integrated NIC
 
 # PCI Ethernet NICs.
-device		bxe			# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
-device		le			# AMD Am7900 LANCE and Am79C9xx PCnet
-device		ti			# Alteon Networks Tigon I/II gigabit Ethernet
 
 # Nvidia/Mellanox Connect-X 4 and later, Ethernet only
 # mlx5ib requires ibcore infra and is not included by default
-device		mlx5			# Base driver
-device		mlxfw			# Firmware update
-device		mlx5en			# Ethernet driver
 
 # PCI Ethernet NICs that use the common MII bus controller code.
 # NOTE: Be sure to keep the 'device miibus' line in order to use these NICs!
 device		miibus			# MII bus support
 device		ae			# Attansic/Atheros L2 FastEthernet
 device		age			# Attansic/Atheros L1 Gigabit Ethernet
-device		alc			# Atheros AR8131/AR8132 Ethernet
-device		ale			# Atheros AR8121/AR8113/AR8114 Ethernet
-device		bce			# Broadcom BCM5706/BCM5708 Gigabit Ethernet
-device		bfe			# Broadcom BCM440x 10/100 Ethernet
-device		bge			# Broadcom BCM570xx Gigabit Ethernet
-device		cas			# Sun Cassini/Cassini+ and NS DP83065 Saturn
 device		dc			# DEC/Intel 21143 and various workalikes
-device		et			# Agere ET1310 10/100/Gigabit Ethernet
-device		fxp			# Intel EtherExpress PRO/100B (82557, 82558)
-device		gem			# Sun GEM/Sun ERI/Apple GMAC
-device		jme			# JMicron JMC250 Gigabit/JMC260 Fast Ethernet
-device		lge			# Level 1 LXT1001 gigabit Ethernet
-device		msk			# Marvell/SysKonnect Yukon II Gigabit Ethernet
-device		nfe			# nVidia nForce MCP on-board Ethernet
-device		nge			# NatSemi DP83820 gigabit Ethernet
 device		re			# RealTek 8139C+/8169/8169S/8110S
 device		rl			# RealTek 8129/8139
-device		sge			# Silicon Integrated Systems SiS190/191
-device		sis			# Silicon Integrated Systems SiS 900/SiS 7016
-device		sk			# SysKonnect SK-984x & SK-982x gigabit Ethernet
-device		ste			# Sundance ST201 (D-Link DFE-550TX)
-device		stge			# Sundance/Tamarack TC9021 gigabit Ethernet
-device		vge			# VIA VT612x gigabit Ethernet
-device		vr			# VIA Rhine, Rhine II
-device		xl			# 3Com 3c90x (``Boomerang'', ``Cyclone'')
 
 # Wireless NIC cards
 device		wlan			# 802.11 support
