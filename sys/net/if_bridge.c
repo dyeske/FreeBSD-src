@@ -476,7 +476,7 @@ struct bridge_control {
 #define	BC_F_COPYOUT		0x02	/* copy arguments out */
 #define	BC_F_SUSER		0x04	/* do super-user check */
 
-const struct bridge_control bridge_control_table[] = {
+static const struct bridge_control bridge_control_table[] = {
 	{ bridge_ioctl_add,		sizeof(struct ifbreq),
 	  BC_F_COPYIN|BC_F_SUSER },
 	{ bridge_ioctl_del,		sizeof(struct ifbreq),
@@ -561,7 +561,7 @@ const struct bridge_control bridge_control_table[] = {
 	  BC_F_COPYIN|BC_F_SUSER },
 
 };
-const int bridge_control_table_size = nitems(bridge_control_table);
+static const int bridge_control_table_size = nitems(bridge_control_table);
 
 VNET_DEFINE_STATIC(LIST_HEAD(, bridge_softc), bridge_list);
 #define	V_bridge_list	VNET(bridge_list)
@@ -600,7 +600,7 @@ vnet_bridge_uninit(const void *unused __unused)
 	BRIDGE_LIST_LOCK_DESTROY();
 
 	/* Callbacks may use the UMA zone. */
-	epoch_drain_callbacks(net_epoch_preempt);
+	NET_EPOCH_DRAIN_CALLBACKS();
 
 	uma_zdestroy(V_bridge_rtnode_zone);
 }
@@ -2028,8 +2028,13 @@ bridge_enqueue(struct bridge_softc *sc, struct ifnet *dst_ifp, struct mbuf *m)
 
 		M_ASSERTPKTHDR(m); /* We shouldn't transmit mbuf without pkthdr */
 		if ((err = dst_ifp->if_transmit(dst_ifp, m))) {
-			m_freem(m0);
-			if_inc_counter(sc->sc_ifp, IFCOUNTER_OERRORS, 1);
+			int n;
+
+			for (m = m0, n = 1; m != NULL; m = m0, n++) {
+				m0 = m->m_nextpkt;
+				m_freem(m);
+			}
+			if_inc_counter(sc->sc_ifp, IFCOUNTER_OERRORS, n);
 			break;
 		}
 

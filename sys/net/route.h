@@ -415,15 +415,16 @@ struct ifmultiaddr;
 struct rib_head;
 
 void	 rt_ieee80211msg(struct ifnet *, int, void *, size_t);
-void	 rt_ifannouncemsg(struct ifnet *, int);
 void	 rt_ifmsg(struct ifnet *);
+void	 rt_ifmsg_14(struct ifnet *, int);
 void	 rt_missmsg(int, struct rt_addrinfo *, int, int);
 void	 rt_missmsg_fib(int, struct rt_addrinfo *, int, int, int);
 int	 rt_addrmsg(int, struct ifaddr *, int);
 int	 rt_routemsg(int, struct rtentry *, struct nhop_object *, int);
 int	 rt_routemsg_info(int, struct rt_addrinfo *, int);
 void	 rt_newmaddrmsg(int, struct ifmultiaddr *);
-void 	 rt_maskedcopy(struct sockaddr *, struct sockaddr *, struct sockaddr *);
+void 	 rt_maskedcopy(const struct sockaddr *, struct sockaddr *,
+	    const struct sockaddr *);
 struct rib_head *rt_table_init(int, int, u_int);
 void	rt_table_destroy(struct rib_head *);
 u_int	rt_tables_get_gen(uint32_t table, sa_family_t family);

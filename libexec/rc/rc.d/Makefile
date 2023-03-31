@@ -24,10 +24,7 @@ CONFS=	DAEMON \
 	ctld \
 	ddb \
 	defaultroute \
-	devd \
 	devfs \
-	devmatch \
-	dhclient \
 	dmesg \
 	dumpon \
 	fsck \
@@ -36,6 +33,7 @@ CONFS=	DAEMON \
 	geli2 \
 	gptboot \
 	growfs \
+	growfs_fstab \
 	hostid \
 	hostid_save \
 	hostname \
@@ -53,6 +51,7 @@ CONFS=	DAEMON \
 	local \
 	localpkg \
 	lockd \
+	machine_id \
 	mixer \
 	motd \
 	mountcritlocal \
@@ -87,7 +86,6 @@ CONFS=	DAEMON \
 	random \
 	rarpd \
 	rctl \
-	resolv \
 	root \
 	route6d \
 	routing \
@@ -115,6 +113,22 @@ CONFS=	DAEMON \
 	var \
 	var_run \
 	watchdogd
+
+CONFGROUPS+=		DEVD
+DEVD=			devd
+DEVDPACKAGE=		devd
+
+CONFGROUPS+=		DEVMATCH
+DEVMATCH=		devmatch
+DEVMATCHPACKAGE=	devmatch
+
+CONFGROUPS+=		DHCLIENT
+DHCLIENT=		dhclient
+DHCLIENTPACKAGE=	dhclient
+
+CONFGROUPS+=		RESOLVCONF
+RESOLVCONF=		resolv
+RESOLVCONFPACKAGE=	resolvconf
 
 .if ${MK_NIS} != "no"
 CONFS+=	ypbind \
