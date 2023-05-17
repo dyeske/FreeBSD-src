@@ -52,6 +52,16 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20230420: case-sensitive conflicts removed
+OLD_FILES+=usr/tests/bin/pkill/pgrep-F_test
+OLD_FILES+=usr/tests/bin/pkill/pgrep-LF_test
+OLD_FILES+=usr/tests/bin/pkill/pgrep-P_test
+OLD_FILES+=usr/tests/bin/pkill/pgrep-U_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-F_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-LF_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-P_test
+OLD_FILES+=usr/tests/bin/pkill/pkill-U_test
+
 # 20230410: new clang import which bumps version from 14.0.5 to 15.0.7
 OLD_FILES+=usr/lib/clang/14.0.5/include/cuda_wrappers/algorithm
 OLD_FILES+=usr/lib/clang/14.0.5/include/cuda_wrappers/complex
@@ -2807,6 +2817,18 @@ OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.all
 OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.holiday
 OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.misc
 OLD_FILES+=usr/share/calendar/uk_UA.KOI8-U/calendar.orthodox
+OLD_DIRS+=usr/share/calendar/de_AT.ISO_8859-15
+OLD_DIRS+=usr/share/calendar/de_DE.ISO8859-1
+OLD_FILES+=usr/share/calendar/de_DE.ISO8859-15
+OLD_DIRS+=usr/share/calendar/fr_FR.ISO8859-1
+OLD_FILES+=usr/share/calendar/fr_FR.ISO8859-15
+OLD_DIRS+=usr/share/calendar/hr_HR.ISO8859-2
+OLD_DIRS+=usr/share/calendar/hu_HU.ISO8859-2
+OLD_DIRS+=usr/share/calendar/pt_BR.ISO8859-1
+OLD_DIRS+=usr/share/calendar/pt_BR.UTF-8
+OLD_DIRS+=usr/share/calendar/ru_RU.KOI8-R
+OLD_DIRS+=usr/share/calendar/ru_RU.UTF-8
+OLD_DIRS+=usr/share/calendar/uk_UA.KOI8-U
 
 # 20201004: logo files renamed to type-agnostic gfx-*.lua
 OLD_FILES+=boot/lua/logo-beastie.lua
