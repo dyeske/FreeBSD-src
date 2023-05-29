@@ -432,6 +432,9 @@ validate_sblock(struct fs *fs, int isaltsblk)
 	    %jd);
 	CHK(fs->fs_sbsize, >, SBLOCKSIZE, %jd);
 	CHK(fs->fs_sbsize, <, (unsigned)sizeof(struct fs), %jd);
+	/* fix for misconfigured filesystems */
+	if (fs->fs_maxbsize == 0)
+		fs->fs_maxbsize = fs->fs_bsize;
 	CHK(fs->fs_maxbsize, <, fs->fs_bsize, %jd);
 	CHK(powerof2(fs->fs_maxbsize), ==, 0, %jd);
 	CHK(fs->fs_maxbsize, >, FS_MAXCONTIG * fs->fs_bsize, %jd);
@@ -446,6 +449,7 @@ validate_sblock(struct fs *fs, int isaltsblk)
 	CHK(fs->fs_old_cgoffset, <, 0, %jd);
 	CHK2(fs->fs_old_cgoffset, >, 0, ~fs->fs_old_cgmask, <, 0, %jd);
 	CHK(fs->fs_old_cgoffset * (~fs->fs_old_cgmask), >, fs->fs_fpg, %jd);
+	CHK(CGSIZE(fs), >, fs->fs_bsize, %jd);
 	/*
 	 * If anything has failed up to this point, it is usafe to proceed
 	 * as checks below may divide by zero or make other fatal calculations.
