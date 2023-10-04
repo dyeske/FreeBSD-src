@@ -1,4 +1,4 @@
-/*	$NetBSD: var.c,v 1.1054 2023/05/10 18:22:33 sjg Exp $	*/
+/*	$NetBSD: var.c,v 1.1064 2023/08/19 19:59:17 rillig Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -147,7 +147,7 @@
 #include "metachar.h"
 
 /*	"@(#)var.c	8.3 (Berkeley) 3/19/94" */
-MAKE_RCSID("$NetBSD: var.c,v 1.1054 2023/05/10 18:22:33 sjg Exp $");
+MAKE_RCSID("$NetBSD: var.c,v 1.1064 2023/08/19 19:59:17 rillig Exp $");
 
 /*
  * Variables are defined using one of the VAR=value assignments.  Their
@@ -521,6 +521,11 @@ Var_Delete(GNode *scope, const char *varname)
 
 	DEBUG2(VAR, "%s: delete %s\n", scope->name, varname);
 	v = he->value;
+	if (v->readOnly) {
+		DEBUG2(VAR, "%s: delete %s (readOnly)\n",
+		    scope->name, varname);
+		return;
+	}
 	if (v->inUse) {
 		Parse_Error(PARSE_FATAL,
 		    "Cannot delete variable \"%s\" while it is used",
@@ -1322,7 +1327,7 @@ SepBuf_AddBytes(SepBuf *buf, const char *mem, size_t mem_size)
 }
 
 static void
-SepBuf_AddBytesBetween(SepBuf *buf, const char *start, const char *end)
+SepBuf_AddRange(SepBuf *buf, const char *start, const char *end)
 {
 	SepBuf_AddBytes(buf, start, (size_t)(end - start));
 }
@@ -1336,7 +1341,7 @@ SepBuf_AddStr(SepBuf *buf, const char *str)
 static void
 SepBuf_AddSubstring(SepBuf *buf, Substring sub)
 {
-	SepBuf_AddBytesBetween(buf, sub.start, sub.end);
+	SepBuf_AddRange(buf, sub.start, sub.end);
 }
 
 static char *
@@ -1393,7 +1398,7 @@ ModifyWord_Suffix(Substring word, SepBuf *buf, void *dummy MAKE_ATTR_UNUSED)
 {
 	const char *lastDot = Substring_LastIndex(word, '.');
 	if (lastDot != NULL)
-		SepBuf_AddBytesBetween(buf, lastDot + 1, word.end);
+		SepBuf_AddRange(buf, lastDot + 1, word.end);
 }
 
 /*
@@ -1408,35 +1413,7 @@ ModifyWord_Root(Substring word, SepBuf *buf, void *dummy MAKE_ATTR_UNUSED)
 
 	lastDot = Substring_LastIndex(word, '.');
 	end = lastDot != NULL ? lastDot : word.end;
-	SepBuf_AddBytesBetween(buf, word.start, end);
-}
-
-/*
- * Callback for ModifyWords to implement the :M modifier.
- * Place the word in the buffer if it matches the given pattern.
- */
-static void
-ModifyWord_Match(Substring word, SepBuf *buf, void *data)
-{
-	const char *pattern = data;
-
-	assert(word.end[0] == '\0');	/* assume null-terminated word */
-	if (Str_Match(word.start, pattern))
-		SepBuf_AddSubstring(buf, word);
-}
-
-/*
- * Callback for ModifyWords to implement the :N modifier.
- * Place the word in the buffer if it doesn't match the given pattern.
- */
-static void
-ModifyWord_NoMatch(Substring word, SepBuf *buf, void *data)
-{
-	const char *pattern = data;
-
-	assert(word.end[0] == '\0');	/* assume null-terminated word */
-	if (!Str_Match(word.start, pattern))
-		SepBuf_AddSubstring(buf, word);
+	SepBuf_AddRange(buf, word.start, end);
 }
 
 #ifdef SYSVVARSUB
@@ -1471,9 +1448,9 @@ ModifyWord_SysVSubst(Substring word, SepBuf *buf, void *data)
 	percent = args->lhsPercent ? strchr(rhs.str, '%') : NULL;
 
 	if (percent != NULL)
-		SepBuf_AddBytesBetween(buf, rhs.str, percent);
+		SepBuf_AddRange(buf, rhs.str, percent);
 	if (percent != NULL || !args->lhsPercent)
-		SepBuf_AddBytesBetween(buf,
+		SepBuf_AddRange(buf,
 		    word.start + Substring_Length(args->lhsPrefix),
 		    word.end - Substring_Length(args->lhsSuffix));
 	SepBuf_AddStr(buf, percent != NULL ? percent + 1 : rhs.str);
@@ -1530,7 +1507,7 @@ ModifyWord_Subst(Substring word, SepBuf *buf, void *data)
 
 		/* :S,^prefix,replacement, or :S,^whole$,replacement, */
 		SepBuf_AddSubstring(buf, args->rhs);
-		SepBuf_AddBytesBetween(buf, word.start + lhsLen, wordEnd);
+		SepBuf_AddRange(buf, word.start + lhsLen, wordEnd);
 		args->matched = true;
 		return;
 	}
@@ -1542,7 +1519,7 @@ ModifyWord_Subst(Substring word, SepBuf *buf, void *data)
 			goto nosub;
 
 		/* :S,suffix$,replacement, */
-		SepBuf_AddBytesBetween(buf, word.start, wordEnd - lhsLen);
+		SepBuf_AddRange(buf, word.start, wordEnd - lhsLen);
 		SepBuf_AddSubstring(buf, args->rhs);
 		args->matched = true;
 		return;
@@ -1553,7 +1530,7 @@ ModifyWord_Subst(Substring word, SepBuf *buf, void *data)
 
 	/* unanchored case, may match more than once */
 	while ((match = Substring_Find(word, args->lhs)) != NULL) {
-		SepBuf_AddBytesBetween(buf, word.start, match);
+		SepBuf_AddRange(buf, word.start, match);
 		SepBuf_AddSubstring(buf, args->rhs);
 		args->matched = true;
 		word.start = match + lhsLen;
@@ -1567,7 +1544,7 @@ nosub:
 #ifndef NO_REGEX
 /* Print the error caused by a regcomp or regexec call. */
 static void
-VarREError(int reerr, const regex_t *pat, const char *str)
+RegexError(int reerr, const regex_t *pat, const char *str)
 {
 	size_t errlen = regerror(reerr, pat, NULL, 0);
 	char *errbuf = bmake_malloc(errlen);
@@ -1589,7 +1566,7 @@ RegexReplaceBackref(char ref, SepBuf *buf, const char *wp,
 		if (opts.strict)
 			Error("No match for subexpression \\%u", n);
 	} else {
-		SepBuf_AddBytesBetween(buf,
+		SepBuf_AddRange(buf,
 		    wp + (size_t)m[n].rm_so,
 		    wp + (size_t)m[n].rm_eo);
 	}
@@ -1613,7 +1590,7 @@ RegexReplace(Substring replace, SepBuf *buf, const char *wp,
 			 ch_isdigit(rp[1]))
 			RegexReplaceBackref(*++rp, buf, wp, m, nsub);
 		else if (*rp == '&') {
-			SepBuf_AddBytesBetween(buf,
+			SepBuf_AddRange(buf,
 			    wp + (size_t)m[0].rm_so,
 			    wp + (size_t)m[0].rm_eo);
 		} else
@@ -1652,9 +1629,9 @@ again:
 	if (xrv == 0)
 		goto ok;
 	if (xrv != REG_NOMATCH)
-		VarREError(xrv, &args->re, "Unexpected regex error");
+		RegexError(xrv, &args->re, "Unexpected regex error");
 no_match:
-	SepBuf_AddBytesBetween(buf, wp, word.end);
+	SepBuf_AddRange(buf, wp, word.end);
 	return;
 
 ok:
@@ -1809,8 +1786,7 @@ SubstringWords_JoinFree(SubstringWords words)
 			 */
 			Buf_AddByte(&buf, ' ');
 		}
-		Buf_AddBytesBetween(&buf,
-		    words.words[i].start, words.words[i].end);
+		Buf_AddRange(&buf, words.words[i].start, words.words[i].end);
 	}
 
 	SubstringWords_Free(words);
@@ -1824,7 +1800,7 @@ SubstringWords_JoinFree(SubstringWords words)
  * If quoteDollar is set, also quote and double any '$' characters.
  */
 static void
-VarQuote(const char *str, bool quoteDollar, LazyBuf *buf)
+QuoteShell(const char *str, bool quoteDollar, LazyBuf *buf)
 {
 	const char *p;
 
@@ -1850,7 +1826,7 @@ VarQuote(const char *str, bool quoteDollar, LazyBuf *buf)
  * algorithm. Output is encoded as 8 hex digits, in Little Endian order.
  */
 static char *
-VarHash(const char *str)
+Hash(const char *str)
 {
 	static const char hexdigits[16] = "0123456789abcdef";
 	const unsigned char *ustr = (const unsigned char *)str;
@@ -1910,7 +1886,7 @@ VarHash(const char *str)
 }
 
 static char *
-VarStrftime(const char *fmt, time_t t, bool gmt)
+FormatTime(const char *fmt, time_t t, bool gmt)
 {
 	char buf[BUFSIZ];
 
@@ -1918,7 +1894,20 @@ VarStrftime(const char *fmt, time_t t, bool gmt)
 		time(&t);
 	if (*fmt == '\0')
 		fmt = "%c";
-	strftime(buf, sizeof buf, fmt, gmt ? gmtime(&t) : localtime(&t));
+	if (gmt && strchr(fmt, 's') != NULL) {
+		/* strftime "%s" only works with localtime, not with gmtime. */
+		const char *prev_tz_env = getenv("TZ");
+		char *prev_tz = prev_tz_env != NULL
+		    ? bmake_strdup(prev_tz_env) : NULL;
+		setenv("TZ", "UTC", 1);
+		strftime(buf, sizeof buf, fmt, localtime(&t));
+		if (prev_tz != NULL) {
+			setenv("TZ", prev_tz, 1);
+			free(prev_tz);
+		} else
+			unsetenv("TZ");
+	} else
+		strftime(buf, sizeof buf, fmt, (gmt ? gmtime : localtime)(&t));
 
 	buf[sizeof buf - 1] = '\0';
 	return bmake_strdup(buf);
@@ -2607,7 +2596,7 @@ ApplyModifier_Time(const char **pp, ModChain *ch)
 
 	expr = ch->expr;
 	if (Expr_ShouldEval(expr))
-		Expr_SetValueOwn(expr, VarStrftime(Expr_Str(expr), t, gmt));
+		Expr_SetValueOwn(expr, FormatTime(Expr_Str(expr), t, gmt));
 
 	return AMR_OK;
 }
@@ -2621,7 +2610,7 @@ ApplyModifier_Hash(const char **pp, ModChain *ch)
 	*pp += 4;
 
 	if (ModChain_ShouldEval(ch))
-		Expr_SetValueOwn(ch->expr, VarHash(Expr_Str(ch->expr)));
+		Expr_SetValueOwn(ch->expr, Hash(Expr_Str(ch->expr)));
 
 	return AMR_OK;
 }
@@ -2822,6 +2811,29 @@ ParseModifier_Match(const char **pp, const ModChain *ch)
 	return pattern;
 }
 
+struct ModifyWord_MatchArgs {
+	const char *pattern;
+	bool neg;
+	bool error_reported;
+};
+
+static void
+ModifyWord_Match(Substring word, SepBuf *buf, void *data)
+{
+	struct ModifyWord_MatchArgs *args = data;
+	StrMatchResult res;
+	assert(word.end[0] == '\0');	/* assume null-terminated word */
+	res = Str_Match(word.start, args->pattern);
+	if (res.error != NULL && !args->error_reported) {
+		args->error_reported = true;
+		Parse_Error(PARSE_WARNING,
+		    "%s in pattern '%s' of modifier '%s'",
+		    res.error, args->pattern, args->neg ? ":N" : ":M");
+	}
+	if (res.matched != args->neg)
+		SepBuf_AddSubstring(buf, word);
+}
+
 /* :Mpattern or :Npattern */
 static ApplyModifierResult
 ApplyModifier_Match(const char **pp, ModChain *ch)
@@ -2832,9 +2844,11 @@ ApplyModifier_Match(const char **pp, ModChain *ch)
 	pattern = ParseModifier_Match(pp, ch);
 
 	if (ModChain_ShouldEval(ch)) {
-		ModifyWordProc modifyWord =
-		    mod == 'M' ? ModifyWord_Match : ModifyWord_NoMatch;
-		ModifyWords(ch, modifyWord, pattern, ch->oneBigWord);
+		struct ModifyWord_MatchArgs args;
+		args.pattern = pattern;
+		args.neg = mod == 'N';
+		args.error_reported = false;
+		ModifyWords(ch, ModifyWord_Match, &args, ch->oneBigWord);
 	}
 
 	free(pattern);
@@ -2843,17 +2857,17 @@ ApplyModifier_Match(const char **pp, ModChain *ch)
 
 struct ModifyWord_MtimeArgs {
 	bool error;
-	bool fallback;
+	bool use_fallback;
 	ApplyModifierResult rc;
-	time_t t;
+	time_t fallback;
 };
 
 static void
 ModifyWord_Mtime(Substring word, SepBuf *buf, void *data)
 {
-	char tbuf[BUFSIZ];
-	struct stat st;
 	struct ModifyWord_MtimeArgs *args = data;
+	struct stat st;
+	char tbuf[21];
 
 	if (Substring_IsEmpty(word))
 		return;
@@ -2866,8 +2880,8 @@ ModifyWord_Mtime(Substring word, SepBuf *buf, void *data)
 			args->rc = AMR_CLEANUP;
 			return;
 		}
-		if (args->fallback)
-			st.st_mtime = args->t;
+		if (args->use_fallback)
+			st.st_mtime = args->fallback;
 		else
 			time(&st.st_mtime);
 	}
@@ -2886,17 +2900,21 @@ ApplyModifier_Mtime(const char **pp, ModChain *ch)
 		return AMR_UNKNOWN;
 	*pp += 5;
 	p = *pp;
-	args.error = args.fallback = false;
+	args.error = false;
+	args.use_fallback = p[0] == '=';
 	args.rc = AMR_OK;
-	if (p[0] == '=') {
+	if (args.use_fallback) {
 		p++;
-		args.fallback = true;
-		if (!TryParseTime(&p, &args.t)) {
-			if (strncmp(p, "error", 5) == 0) {
-				args.error = true;
-				p += 5;
-			} else
-				return AMR_BAD;
+		if (TryParseTime(&p, &args.fallback)) {
+		} else if (strncmp(p, "error", 5) == 0
+		    && IsDelimiter(p[5], ch)) {
+			p += 5;
+			args.error = true;
+		} else {
+			Parse_Error(PARSE_FATAL,
+			    "Invalid argument '%.*s' for modifier ':mtime'",
+			    (int)strcspn(p, ":{}()"), p);
+			return AMR_CLEANUP;
 		}
 		*pp = p;
 	}
@@ -3016,7 +3034,7 @@ ApplyModifier_Regex(const char **pp, ModChain *ch)
 
 	error = regcomp(&args.re, re.str, REG_EXTENDED);
 	if (error != 0) {
-		VarREError(error, &args.re, "Regex compilation error");
+		RegexError(error, &args.re, "Regex compilation error");
 		LazyBuf_Done(&replaceBuf);
 		FStr_Done(&re);
 		return AMR_CLEANUP;
@@ -3052,7 +3070,7 @@ ApplyModifier_Quote(const char **pp, ModChain *ch)
 	if (!ModChain_ShouldEval(ch))
 		return AMR_OK;
 
-	VarQuote(Expr_Str(ch->expr), quoteDollar, &buf);
+	QuoteShell(Expr_Str(ch->expr), quoteDollar, &buf);
 	if (buf.data != NULL)
 		Expr_SetValue(ch->expr, LazyBuf_DoneGet(&buf));
 	else
@@ -4743,7 +4761,7 @@ VarSubstPlain(const char **pp, Buffer *res)
 
 	for (p++; *p != '$' && *p != '\0'; p++)
 		continue;
-	Buf_AddBytesBetween(res, start, p);
+	Buf_AddRange(res, start, p);
 	*pp = p;
 }
 

@@ -61,8 +61,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/module.h>
 #include <sys/systm.h>
@@ -228,8 +226,6 @@ struct vop_vector fuse_vnops = {
 	.vop_vptofh = fuse_vnop_vptofh,
 };
 VFS_VOP_VECTOR_REGISTER(fuse_vnops);
-
-uma_zone_t fuse_pbuf_zone;
 
 /* Check permission for extattr operations, much like extattr_check_cred */
 static int
@@ -783,6 +779,7 @@ static int
 fuse_vnop_close(struct vop_close_args *ap)
 {
 	struct vnode *vp = ap->a_vp;
+	struct mount *mp = vnode_mount(vp);
 	struct ucred *cred = ap->a_cred;
 	int fflag = ap->a_fflag;
 	struct thread *td = ap->a_td;
@@ -798,12 +795,30 @@ fuse_vnop_close(struct vop_close_args *ap)
 		return 0;
 
 	err = fuse_flush(vp, cred, pid, fflag);
-	if (err == 0 && (fvdat->flag & FN_ATIMECHANGE)) {
+	if (err == 0 && (fvdat->flag & FN_ATIMECHANGE) && !vfs_isrdonly(mp)) {
 		struct vattr vap;
+		struct fuse_data *data;
+		int dataflags;
+		int access_e = 0;
 
-		VATTR_NULL(&vap);
-		vap.va_atime = fvdat->cached_attrs.va_atime;
-		err = fuse_internal_setattr(vp, &vap, td, NULL);
+		data = fuse_get_mpdata(mp);
+		dataflags = data->dataflags;
+		if (dataflags & FSESS_DEFAULT_PERMISSIONS) {
+			struct vattr va;
+
+			fuse_internal_getattr(vp, &va, cred, td);
+			access_e = vaccess(vp->v_type, va.va_mode, va.va_uid,
+			    va.va_gid, VWRITE, cred);
+		}
+		if (access_e == 0) {
+			VATTR_NULL(&vap);
+			vap.va_atime = fvdat->cached_attrs.va_atime;
+			/*
+			 * Ignore errors setting when setting atime.  That
+			 * should not cause close(2) to fail.
+			 */
+			fuse_internal_setattr(vp, &vap, td, NULL);
+		}
 	}
 	/* TODO: close the file handle, if we're sure it's no longer used */
 	if ((fvdat->flag & FN_SIZECHANGE) != 0) {
@@ -1393,7 +1408,7 @@ struct fuse_lookup_alloc_arg {
 	struct fuse_entry_out *feo;
 	struct componentname *cnp;
 	uint64_t nid;
-	enum vtype vtyp;
+	__enum_uint8(vtype) vtyp;
 };
 
 /* Callback for vn_get_ino */
@@ -1441,7 +1456,7 @@ fuse_vnop_lookup(struct vop_lookup_args *ap)
 	struct fuse_dispatcher fdi;
 	bool did_lookup = false;
 	struct fuse_entry_out *feo = NULL;
-	enum vtype vtyp;	/* vnode type of target */
+	__enum_uint8(vtype) vtyp;	/* vnode type of target */
 
 	uint64_t nid;
 

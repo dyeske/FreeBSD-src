@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2022, Intel Corporation
+/*  Copyright (c) 2023, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 /**
  * @file ice_lib.h
@@ -156,8 +155,6 @@ struct ice_bar_info {
 
 #define ICE_MSIX_BAR		3
 
-#define ICE_MAX_DCB_TCS		8
-
 #define ICE_DEFAULT_DESC_COUNT	1024
 #define ICE_MAX_DESC_COUNT	8160
 #define ICE_MIN_DESC_COUNT	64
@@ -261,6 +258,10 @@ struct ice_bar_info {
  */
 #define ICE_MIN_MTU 112
 
+/*
+ * The default number of queues reserved for a VF is 4, according to the
+ * AVF Base Mode specification.
+ */
 #define ICE_DEFAULT_VF_QUEUES	4
 
 /*
@@ -366,17 +367,6 @@ enum ice_rx_dtype {
  * commands must currently be at least 2 seconds.
  */
 #define ICE_START_LLDP_RETRY_WAIT	(2 * hz)
-
-/*
- * The ice_(set|clear)_vsi_promisc() function expects a mask of promiscuous
- * modes to operate on. This mask is the default one for the driver, where
- * promiscuous is enabled/disabled for all types of non-VLAN-tagged/VLAN 0
- * traffic.
- */
-#define ICE_VSI_PROMISC_MASK		(ICE_PROMISC_UCAST_TX | \
-					 ICE_PROMISC_UCAST_RX | \
-					 ICE_PROMISC_MCAST_TX | \
-					 ICE_PROMISC_MCAST_RX)
 
 /*
  * Only certain cluster IDs are valid for the FW debug dump functionality,
@@ -609,6 +599,8 @@ enum ice_state {
 	ICE_STATE_LLDP_RX_FLTR_FROM_DRIVER,
 	ICE_STATE_MULTIPLE_TCS,
 	ICE_STATE_DO_FW_DEBUG_DUMP,
+	ICE_STATE_LINK_ACTIVE_ON_DOWN,
+	ICE_STATE_FIRST_INIT_LINK,
 	/* This entry must be last */
 	ICE_STATE_LAST,
 };
@@ -826,13 +818,16 @@ uint64_t ice_aq_speed_to_rate(struct ice_port_info *pi);
 int  ice_get_phy_type_low(uint64_t phy_type_low);
 int  ice_get_phy_type_high(uint64_t phy_type_high);
 enum ice_status ice_add_media_types(struct ice_softc *sc, struct ifmedia *media);
-void ice_configure_rxq_interrupts(struct ice_vsi *vsi);
-void ice_configure_txq_interrupts(struct ice_vsi *vsi);
+void ice_configure_rxq_interrupt(struct ice_hw *hw, u16 rxqid, u16 vector, u8 itr_idx);
+void ice_configure_all_rxq_interrupts(struct ice_vsi *vsi);
+void ice_configure_txq_interrupt(struct ice_hw *hw, u16 txqid, u16 vector, u8 itr_idx);
+void ice_configure_all_txq_interrupts(struct ice_vsi *vsi);
 void ice_flush_rxq_interrupts(struct ice_vsi *vsi);
 void ice_flush_txq_interrupts(struct ice_vsi *vsi);
 int  ice_cfg_vsi_for_tx(struct ice_vsi *vsi);
 int  ice_cfg_vsi_for_rx(struct ice_vsi *vsi);
-int  ice_control_rx_queues(struct ice_vsi *vsi, bool enable);
+int  ice_control_rx_queue(struct ice_vsi *vsi, u16 qidx, bool enable);
+int  ice_control_all_rx_queues(struct ice_vsi *vsi, bool enable);
 int  ice_cfg_pf_default_mac_filters(struct ice_softc *sc);
 int  ice_rm_pf_default_mac_filters(struct ice_softc *sc);
 void ice_print_nvm_version(struct ice_softc *sc);
@@ -851,7 +846,11 @@ void ice_add_sysctls_mac_stats(struct sysctl_ctx_list *ctx,
 			       struct ice_hw_port_stats *stats);
 void ice_configure_misc_interrupts(struct ice_softc *sc);
 int  ice_sync_multicast_filters(struct ice_softc *sc);
+enum ice_status ice_add_vlan_hw_filters(struct ice_vsi *vsi, u16 *vid,
+					u16 length);
 enum ice_status ice_add_vlan_hw_filter(struct ice_vsi *vsi, u16 vid);
+enum ice_status ice_remove_vlan_hw_filters(struct ice_vsi *vsi, u16 *vid,
+					   u16 length);
 enum ice_status ice_remove_vlan_hw_filter(struct ice_vsi *vsi, u16 vid);
 void ice_add_vsi_tunables(struct ice_vsi *vsi, struct sysctl_oid *parent);
 void ice_del_vsi_sysctl_ctx(struct ice_vsi *vsi);
@@ -898,9 +897,12 @@ int  ice_read_sff_eeprom(struct ice_softc *sc, u16 dev_addr, u16 offset, u8* dat
 int  ice_alloc_intr_tracking(struct ice_softc *sc);
 void ice_free_intr_tracking(struct ice_softc *sc);
 void ice_set_default_local_lldp_mib(struct ice_softc *sc);
+void ice_set_link(struct ice_softc *sc, bool enabled);
+void ice_add_rx_lldp_filter(struct ice_softc *sc);
 void ice_init_health_events(struct ice_softc *sc);
 void ice_cfg_pba_num(struct ice_softc *sc);
 int ice_handle_debug_dump_ioctl(struct ice_softc *sc, struct ifdrv *ifd);
 u8 ice_dcb_get_tc_map(const struct ice_dcbx_cfg *dcbcfg);
+void ice_do_dcb_reconfig(struct ice_softc *sc, bool pending_mib);
 
 #endif /* _ICE_LIB_H_ */

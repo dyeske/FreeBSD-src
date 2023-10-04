@@ -271,22 +271,27 @@ rtmsg_nl_int(struct nl_helper *h, int cmd, int rtm_flags, int fib, int rtm_addrs
 
 		hdr = snl_read_reply(ss, hdr->nlmsg_seq);
 		if (nl_type == NL_RTM_GETROUTE) {
-			if (hdr->nlmsg_type == NL_RTM_NEWROUTE)
+			if (hdr->nlmsg_type == NL_RTM_NEWROUTE) {
 				print_getmsg(h, hdr, dst);
-			else {
-				snl_parse_errmsg(ss, hdr, &e);
-				if (e.error == ESRCH)
-					warn("route has not been found");
-				else
-					warn("message indicates error %d", e.error);
+				return (0);
 			}
-
-			return (0);
 		}
 
-		if (snl_parse_errmsg(ss, hdr, &e))
+		if (snl_parse_errmsg(ss, hdr, &e)) {
+			switch (e.error) {
+			case (ESRCH):
+				warnx("route has not been found");
+				break;
+			default:
+				if (e.error == 0)
+					break;
+				warnc(e.error, "message indicates error");
+			}
+
 			return (e.error);
+		}
 	}
+
 	return (EINVAL);
 }
 
@@ -533,14 +538,14 @@ print_nlmsg_route(struct nl_helper *h, struct nlmsghdr *hdr,
 		return;
 	}
 
-	if (r.rta_multipath != NULL) {
+	if (r.rta_multipath.num_nhops != 0) {
 		bool first = true;
 
 		memset(buf, ' ', sizeof(buf));
 		buf[len] = '\0';
 
-		for (int i = 0; i < r.rta_multipath->num_nhops; i++) {
-			struct rta_mpath_nh *nh = &r.rta_multipath->nhops[i];
+		for (uint32_t i = 0; i < r.rta_multipath.num_nhops; i++) {
+			struct rta_mpath_nh *nh = r.rta_multipath.nhops[i];
 
 			if (!first)
 				printf("%s", buf);
@@ -834,9 +839,9 @@ flushroute_one(struct nl_helper *h, struct snl_parsed_route *r)
 		print_nlmsg(h, hdr, &attrs);
 	}
 	else {
-		if (r->rta_multipath != NULL) {
-			for (int i = 0; i < r->rta_multipath->num_nhops; i++) {
-				struct rta_mpath_nh *nh = &r->rta_multipath->nhops[i];
+		if (r->rta_multipath.num_nhops != 0) {
+			for (uint32_t i = 0; i < r->rta_multipath.num_nhops; i++) {
+				struct rta_mpath_nh *nh = r->rta_multipath.nhops[i];
 
 				print_flushed_route(r, nh->gw);
 			}

@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 #include "opt_gdb.h"
 
@@ -49,6 +47,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/vnode.h>
 #include <sys/linker.h>
 #include <sys/sysctl.h>
+#include <sys/tslog.h>
 
 #include <machine/elf.h>
 
@@ -161,6 +160,9 @@ static int	link_elf_each_function_nameval(linker_file_t,
 static void	link_elf_reloc_local(linker_file_t);
 static long	link_elf_symtab_get(linker_file_t, const Elf_Sym **);
 static long	link_elf_strtab_get(linker_file_t, caddr_t *);
+#ifdef VIMAGE
+static void	link_elf_propagate_vnets(linker_file_t);
+#endif
 static int	elf_lookup(linker_file_t, Elf_Size, int, Elf_Addr *);
 
 static kobj_method_t link_elf_methods[] = {
@@ -179,6 +181,9 @@ static kobj_method_t link_elf_methods[] = {
 	KOBJMETHOD(linker_ctf_get,		link_elf_ctf_get),
 	KOBJMETHOD(linker_symtab_get,		link_elf_symtab_get),
 	KOBJMETHOD(linker_strtab_get,		link_elf_strtab_get),
+#ifdef VIMAGE
+	KOBJMETHOD(linker_propagate_vnets,	link_elf_propagate_vnets),
+#endif
 	KOBJMETHOD_END
 };
 
@@ -501,6 +506,7 @@ link_elf_init(void* arg)
 	TAILQ_INIT(&set_pcpu_list);
 #ifdef VIMAGE
 	TAILQ_INIT(&set_vnet_list);
+	vnet_save_init((void *)VNET_START, VNET_STOP - VNET_START);
 #endif
 }
 
@@ -719,6 +725,7 @@ parse_vnet(elf_file_t ef)
 
 	ef->vnet_start = 0;
 	ef->vnet_stop = 0;
+	ef->vnet_base = 0;
 	error = link_elf_lookup_set(&ef->lf, "vnet", (void ***)&ef->vnet_start,
 	    (void ***)&ef->vnet_stop, NULL);
 	/* Error just means there is no vnet data set to relocate. */
@@ -761,7 +768,7 @@ parse_vnet(elf_file_t ef)
 		return (ENOSPC);
 	}
 	memcpy((void *)ef->vnet_base, (void *)ef->vnet_start, size);
-	vnet_data_copy((void *)ef->vnet_base, size);
+	vnet_save_init((void *)ef->vnet_base, size);
 	elf_set_add(&set_vnet_list, ef->vnet_start, ef->vnet_stop,
 	    ef->vnet_base);
 
@@ -1431,6 +1438,7 @@ relocate_file1(elf_file_t ef, elf_lookup_fn lookup, elf_reloc_fn reloc,
 	const Elf_Rela *rela;
 	const char *symname;
 
+	TSENTER();
 #define	APPLY_RELOCS(iter, tbl, tblsize, type) do {			\
 	for ((iter) = (tbl); (iter) != NULL &&				\
 	    (iter) < (tbl) + (tblsize) / sizeof(*(iter)); (iter)++) {	\
@@ -1449,12 +1457,15 @@ relocate_file1(elf_file_t ef, elf_lookup_fn lookup, elf_reloc_fn reloc,
 } while (0)
 
 	APPLY_RELOCS(rel, ef->rel, ef->relsize, ELF_RELOC_REL);
+	TSENTER2("ef->rela");
 	APPLY_RELOCS(rela, ef->rela, ef->relasize, ELF_RELOC_RELA);
+	TSEXIT2("ef->rela");
 	APPLY_RELOCS(rel, ef->pltrel, ef->pltrelsize, ELF_RELOC_REL);
 	APPLY_RELOCS(rela, ef->pltrela, ef->pltrelasize, ELF_RELOC_RELA);
 
 #undef APPLY_RELOCS
 
+	TSEXIT();
 	return (0);
 }
 
@@ -1920,6 +1931,20 @@ link_elf_strtab_get(linker_file_t lf, caddr_t *strtab)
 	return (ef->ddbstrcnt);
 }
 
+#ifdef VIMAGE
+static void
+link_elf_propagate_vnets(linker_file_t lf)
+{
+	elf_file_t ef = (elf_file_t)lf;
+	int size;
+
+	if (ef->vnet_base != 0) {
+		size = (uintptr_t)ef->vnet_stop - (uintptr_t)ef->vnet_start;
+		vnet_data_copy((void *)ef->vnet_base, size);
+	}
+}
+#endif
+
 #if defined(__i386__) || defined(__amd64__) || defined(__aarch64__) || defined(__powerpc__)
 /*
  * Use this lookup routine when performing relocations early during boot.
@@ -1950,6 +1975,7 @@ link_elf_ireloc(caddr_t kmdp)
 	struct elf_file eff;
 	elf_file_t ef;
 
+	TSENTER();
 	ef = &eff;
 
 	bzero_early(ef, sizeof(*ef));
@@ -1966,6 +1992,7 @@ link_elf_ireloc(caddr_t kmdp)
 
 	link_elf_preload_parse_symbols(ef);
 	relocate_file1(ef, elf_lookup_ifunc, elf_reloc, true);
+	TSEXIT();
 }
 
 #if defined(__aarch64__) || defined(__amd64__)

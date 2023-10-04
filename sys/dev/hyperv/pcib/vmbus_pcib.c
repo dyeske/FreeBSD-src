@@ -25,8 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #ifdef NEW_PCIB
 #include "opt_acpi.h"
 
@@ -77,7 +75,6 @@ __FBSDID("$FreeBSD$");
 #include <dev/acpica/acpi_pcibvar.h>
 #endif
 #include <dev/hyperv/include/hyperv.h>
-#include <dev/hyperv/include/hyperv_busdma.h>
 #include <dev/hyperv/include/vmbus_xact.h>
 #include <dev/hyperv/vmbus/vmbus_reg.h>
 #include <dev/hyperv/vmbus/vmbus_chanvar.h>
@@ -1708,9 +1705,9 @@ vmbus_pcib_alloc_resource(device_t dev, device_t child, int type, int *rid,
 	if (res == NULL && start + count - 1 == end)
 		res = bus_generic_alloc_resource(dev, child, type, rid,
 		    start, end, count, flags);
-	if (res) {
-		device_printf(dev,"vmbus_pcib_alloc_resource is successful\n");
-	}
+	if (res == NULL)
+		device_printf(dev, "vmbus_pcib_alloc_resource failed\n");
+
 	return (res);
 }
 

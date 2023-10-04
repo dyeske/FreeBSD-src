@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2020-2023 The FreeBSD Foundation
- * Copyright (c) 2021-2022 Bjoern A. Zeeb
+ * Copyright (c) 2021-2023 Bjoern A. Zeeb
  *
  * This software was developed by Björn Zeeb under sponsorship from
  * the FreeBSD Foundation.
@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 /*
@@ -575,7 +573,7 @@ __skb_queue_tail(struct sk_buff_head *q, struct sk_buff *new)
 static inline void
 skb_queue_tail(struct sk_buff_head *q, struct sk_buff *new)
 {
-	SKB_TRACE2(q, skb);
+	SKB_TRACE2(q, new);
 	return (__skb_queue_tail(q, new));
 }
 
@@ -937,10 +935,9 @@ static inline uint8_t *
 skb_mac_header(const struct sk_buff *skb)
 {
 	SKB_TRACE(skb);
-	/* Make sure the mac_header was set as otherwise we return garbage. */
-	WARN_ON(skb->mac_header == 0);
 	return (skb->head + skb->mac_header);
 }
+
 static inline void
 skb_reset_mac_header(struct sk_buff *skb)
 {
@@ -1044,6 +1041,37 @@ napi_consume_skb(struct sk_buff *skb, int budget)
 
 	SKB_TRACE(skb);
 	SKB_TODO();
+}
+
+static inline struct sk_buff *
+napi_build_skb(void *data, size_t len)
+{
+
+	SKB_TODO();
+	return (NULL);
+}
+
+static inline uint32_t
+skb_get_hash(struct sk_buff *skb)
+{
+	SKB_TRACE(skb);
+	SKB_TODO();
+	return (0);
+}
+
+static inline void
+skb_mark_for_recycle(struct sk_buff *skb)
+{
+	SKB_TRACE(skb);
+	SKB_TODO();
+}
+
+static inline int
+skb_cow_head(struct sk_buff *skb, unsigned int headroom)
+{
+	SKB_TRACE(skb);
+	SKB_TODO();
+	return (-1);
 }
 
 #define	SKB_WITH_OVERHEAD(_s)						\

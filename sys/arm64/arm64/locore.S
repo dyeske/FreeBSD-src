@@ -22,8 +22,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include "assym.inc"
@@ -321,7 +319,7 @@ LENTRY(drop_to_el1)
 	/* Zero vttbr_el2 so a hypervisor can tell the host and guest apart */
 	msr	vttbr_el2, xzr
 
-	mov	x2, #(PSR_F | PSR_I | PSR_A | PSR_D | PSR_M_EL1h)
+	mov	x2, #(PSR_DAIF | PSR_M_EL1h)
 	msr	spsr_el2, x2
 
 	/* Configure GICv3 CPU interface */
@@ -866,7 +864,7 @@ sctlr_set:
 	.quad (SCTLR_LSMAOE | SCTLR_nTLSMD | SCTLR_UCI | SCTLR_SPAN | \
 	    SCTLR_nTWE | SCTLR_nTWI | SCTLR_UCT | SCTLR_DZE | \
 	    SCTLR_I | SCTLR_SED | SCTLR_SA0 | SCTLR_SA | SCTLR_C | \
-	    SCTLR_M | SCTLR_CP15BEN)
+	    SCTLR_M | SCTLR_CP15BEN | SCTLR_BT1 | SCTLR_BT0)
 sctlr_clear:
 	/* Bits to clear */
 	.quad (SCTLR_EE | SCTLR_E0E | SCTLR_IESB | SCTLR_WXN | SCTLR_UMA | \
@@ -918,8 +916,10 @@ pagetable_end:
 el2_pagetable:
 	.space	PAGE_SIZE
 
-.text
-EENTRY(aarch32_sigcode)
+	.section .rodata, "a", %progbits
+	.globl	aarch32_sigcode
+	.align 2
+aarch32_sigcode:
 	.word 0xe1a0000d	// mov r0, sp
 	.word 0xe2800040	// add r0, r0, #SIGF_UC
 	.word 0xe59f700c	// ldr r7, [pc, #12]
@@ -927,10 +927,10 @@ EENTRY(aarch32_sigcode)
 	.word 0xe59f7008	// ldr r7, [pc, #8]
 	.word 0xef000000	// swi #0
 	.word 0xeafffffa	// b . - 16
-EEND(aarch32_sigcode)
 	.word SYS_sigreturn
 	.word SYS_exit
 	.align	3
+	.size aarch32_sigcode, . - aarch32_sigcode
 aarch32_esigcode:
 	.data
 	.global sz_aarch32_sigcode

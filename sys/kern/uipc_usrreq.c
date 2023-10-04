@@ -59,8 +59,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 
 #include <sys/param.h>
@@ -890,16 +888,16 @@ uipc_peeraddr(struct socket *so, struct sockaddr **nam)
 	unp2 = unp_pcb_lock_peer(unp);
 	if (unp2 != NULL) {
 		if (unp2->unp_addr != NULL)
-			sa = (struct sockaddr *) unp2->unp_addr;
+			sa = (struct sockaddr *)unp2->unp_addr;
 		else
 			sa = &sun_noname;
 		bcopy(sa, *nam, sa->sa_len);
-		UNP_PCB_UNLOCK(unp2);
+		unp_pcb_unlock_pair(unp, unp2);
 	} else {
 		sa = &sun_noname;
 		bcopy(sa, *nam, sa->sa_len);
+		UNP_PCB_UNLOCK(unp);
 	}
-	UNP_PCB_UNLOCK(unp);
 	return (0);
 }
 
@@ -1334,8 +1332,10 @@ uipc_sosend_dgram(struct socket *so, struct sockaddr *addr, struct uio *uio,
 	} else {
 		soroverflow_locked(so2);
 		error = ENOBUFS;
-		if (f->m_next->m_type == MT_CONTROL)
-			unp_scan(f->m_next, unp_freerights);
+		if (f->m_next->m_type == MT_CONTROL) {
+			c = f->m_next;
+			f->m_next = NULL;
+		}
 	}
 
 	if (addr != NULL)

@@ -33,7 +33,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <libxo/xo.h>
-#include "gmt2local.h"
 
 
 #include <netlink/netlink.h>
@@ -167,7 +166,7 @@ guess_ifindex(struct snl_state *ss, uint32_t fibnum, const struct sockaddr_in6 *
 	if (!snl_parse_nlmsg(ss, hdr, &snl_rtm_route_parser, &r))
 		return (0);
 
-	if (r.rta_multipath || (r.rta_rtflags & RTF_GATEWAY))
+	if (r.rta_multipath.num_nhops > 0 || (r.rta_rtflags & RTF_GATEWAY))
 		return (0);
 
 	/* Check if the interface is of supported type */
@@ -231,9 +230,12 @@ print_entry(struct snl_parsed_neigh *neigh, struct snl_parsed_link_simple *link)
 		.sdl_family = AF_LINK,
 		.sdl_type = link->ifi_type,
 		.sdl_len = sizeof(struct sockaddr_dl),
-		.sdl_alen = NLA_DATA_LEN(neigh->nda_lladdr),
 	};
-	memcpy(sdl.sdl_data, NLA_DATA(neigh->nda_lladdr), sdl.sdl_alen);
+
+	if (neigh->nda_lladdr) {
+		sdl.sdl_alen = NLA_DATA_LEN(neigh->nda_lladdr),
+		memcpy(sdl.sdl_data, NLA_DATA(neigh->nda_lladdr), sdl.sdl_alen);
+	}
 
 	addrwidth = strlen(host_buf);
 	if (addrwidth < W_ADDR)

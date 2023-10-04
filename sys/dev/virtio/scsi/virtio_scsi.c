@@ -29,8 +29,6 @@
 /* Driver for VirtIO SCSI devices. */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -506,7 +504,7 @@ vtscsi_alloc_virtqueues(struct vtscsi_softc *sc)
 	    vtscsi_request_vq_intr, sc, &sc->vtscsi_request_vq,
 	    "%s request", device_get_nameunit(dev));
 
-	return (virtio_alloc_virtqueues(dev, 0, nvqs, vq_info));
+	return (virtio_alloc_virtqueues(dev, nvqs, vq_info));
 }
 
 static void

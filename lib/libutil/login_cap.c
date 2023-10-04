@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -295,7 +293,7 @@ login_getclassbyname(char const *name, const struct passwd *pwd)
 {
     login_cap_t	*lc;
   
-    if ((lc = malloc(sizeof(login_cap_t))) != NULL) {
+    if ((lc = calloc(1, sizeof(login_cap_t))) != NULL) {
 	int         r, me, i = 0;
 	uid_t euid = 0;
 	gid_t egid = 0;
@@ -331,9 +329,6 @@ login_getclassbyname(char const *name, const struct passwd *pwd)
 	if (_secure_path(path_login_conf, 0, 0) != -1)
 	    login_dbarray[i++] = path_login_conf;
 	login_dbarray[i] = NULL;
-
-	memset(lc, 0, sizeof(login_cap_t));
-	lc->lc_cap = lc->lc_class = lc->lc_style = NULL;
 
 	if (name == NULL || *name == '\0')
 	    name = LOGIN_DEFCLASS;
@@ -655,10 +650,8 @@ login_getcaptime(login_cap_t *lc, const char *cap, rlim_t def, rlim_t error)
 
     if ((r = cgetstr(lc->lc_cap, cap, &res)) == -1)
 	return def;
-    else if (r < 0) {
-	errno = ERANGE;
+    else if (r < 0)
 	return error;
-    }
 
     /* "inf" and "infinity" are special cases */
     if (isinfinite(res))
@@ -740,19 +733,18 @@ login_getcapnum(login_cap_t *lc, const char *cap, rlim_t def, rlim_t error)
     /*
      * For BSDI compatibility, try for the tag=<val> first
      */
-    if ((r = cgetstr(lc->lc_cap, cap, &res)) == -1) {
+    r = cgetstr(lc->lc_cap, cap, &res);
+    if (r == -1) {
 	long	lval;
 	/* string capability not present, so try for tag#<val> as numeric */
 	if ((r = cgetnum(lc->lc_cap, cap, &lval)) == -1)
 	    return def; /* Not there, so return default */
-	else if (r >= 0)
+	else if (r < 0)
+	    return error;
+	else
 	    return (rlim_t)lval;
-    }
-
-    if (r < 0) {
-	errno = ERANGE;
+    } else if (r < 0)
 	return error;
-    }
 
     if (isinfinite(res))
 	return RLIM_INFINITY;
@@ -791,10 +783,8 @@ login_getcapsize(login_cap_t *lc, const char *cap, rlim_t def, rlim_t error)
 
     if ((r = cgetstr(lc->lc_cap, cap, &res)) == -1)
 	return def;
-    else if (r < 0) {
-	errno = ERANGE;
+    else if (r < 0)
 	return error;
-    }
 
     if (isinfinite(res))
 	return RLIM_INFINITY;

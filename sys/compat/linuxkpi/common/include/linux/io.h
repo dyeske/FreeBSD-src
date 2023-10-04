@@ -25,8 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 #ifndef	_LINUXKPI_LINUX_IO_H_
 #define	_LINUXKPI_LINUX_IO_H_
@@ -403,6 +401,13 @@ _ioremap_attr(vm_paddr_t _phys_addr, unsigned long _size, int _attr)
 }
 #endif
 
+struct device;
+static inline void *
+devm_ioremap(struct device *dev, resource_size_t offset, resource_size_t size)
+{
+	return (NULL);
+}
+
 #ifdef VM_MEMATTR_DEVICE
 #define	ioremap_nocache(addr, size)					\
     _ioremap_attr((addr), (size), VM_MEMATTR_DEVICE)
@@ -527,14 +532,25 @@ void lkpi_arch_phys_wc_del(int);
 static inline int
 arch_io_reserve_memtype_wc(resource_size_t start, resource_size_t size)
 {
+	vm_offset_t va;
 
-	return (set_memory_wc(start, size >> PAGE_SHIFT));
+	va = PHYS_TO_DMAP(start);
+
+#ifdef VM_MEMATTR_WRITE_COMBINING
+	return (-pmap_change_attr(va, size, VM_MEMATTR_WRITE_COMBINING));
+#else
+	return (-pmap_change_attr(va, size, VM_MEMATTR_UNCACHEABLE));
+#endif
 }
 
 static inline void
 arch_io_free_memtype_wc(resource_size_t start, resource_size_t size)
 {
-	set_memory_wb(start, size >> PAGE_SHIFT);
+	vm_offset_t va;
+
+	va = PHYS_TO_DMAP(start);
+
+	pmap_change_attr(va, size, VM_MEMATTR_WRITE_BACK);
 }
 #endif
 

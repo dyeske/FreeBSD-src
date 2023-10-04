@@ -27,8 +27,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include "opt_ddb.h"
 #include "opt_kld.h"
 #include "opt_hwpmc_hooks.h"
@@ -473,6 +471,9 @@ linker_load_file(const char *filename, linker_file_t *result)
 			}
 			modules = !TAILQ_EMPTY(&lf->modules);
 			linker_file_register_sysctls(lf, false);
+#ifdef VIMAGE
+			LINKER_PROPAGATE_VNETS(lf);
+#endif
 			linker_file_sysinit(lf);
 			lf->flags |= LINKER_FILE_LINKED;
 
@@ -1858,7 +1859,7 @@ linker_lookup_file(const char *path, int pathlen, const char *name,
 	const char * const *cpp, *sep;
 	char *result;
 	int error, len, extlen, reclen, flags;
-	enum vtype type;
+	__enum_uint8(vtype) type;
 
 	extlen = 0;
 	for (cpp = linker_ext_list; *cpp; cpp++) {
@@ -2119,7 +2120,7 @@ linker_hwpmc_list_objects(void)
 	i = 0;
 	TAILQ_FOREACH(lf, &linker_files, link) {
 		/* Save the info for this linker file. */
-		kobase[i].pm_file = lf->filename;
+		kobase[i].pm_file = lf->pathname;
 		kobase[i].pm_address = (uintptr_t)lf->address;
 		i++;
 	}

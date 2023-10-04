@@ -24,13 +24,9 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
@@ -699,7 +695,6 @@ static struct rk_clk_armclk_rates rk3399_cpu_b_rates[] = {
 	},								\
 }
 
-#define PLIST(_name) static const char *_name[]
 PLIST(pll_src_p) = {"xin24m", "xin32k"};
 
 PLIST(armclkl_p) = {"clk_core_l_lpll_src", "clk_core_l_bpll_src",

@@ -33,8 +33,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
 #define	__ELF_WORD_SIZE 32
 
 #include <sys/param.h>
@@ -94,7 +92,6 @@ static struct sysentvec elf32_freebsd_sysvec = {
 	.sv_elf_core_osabi = ELFOSABI_FREEBSD,
 	.sv_elf_core_abi_vendor = FREEBSD_ABI_VENDOR,
 	.sv_elf_core_prepare_notes = elf32_prepare_notes,
-	.sv_imgact_try	= NULL,
 	.sv_minsigstksz	= MINSIGSTKSZ,
 	.sv_minuser	= FREEBSD32_MINUSER,
 	.sv_maxuser	= FREEBSD32_MAXUSER,
@@ -108,7 +105,7 @@ static struct sysentvec elf32_freebsd_sysvec = {
 	.sv_fixlimit	= NULL, // XXX
 	.sv_maxssiz	= NULL,
 	.sv_flags	= SV_ABI_FREEBSD | SV_ILP32 | SV_SHP | SV_TIMEKEEP |
-	    SV_RNG_SEED_VER,
+	    SV_RNG_SEED_VER | SV_SIGSYS,
 	.sv_set_syscall_retval = freebsd32_set_syscall_retval,
 	.sv_fetch_syscall_args = freebsd32_fetch_syscall_args,
 	.sv_syscallnames = freebsd32_syscallnames,
@@ -130,7 +127,6 @@ static Elf32_Brandinfo freebsd32_brand_info = {
 	.brand		= ELFOSABI_FREEBSD,
 	.machine	= EM_ARM,
 	.compat_3_brand	= "FreeBSD",
-	.emul_path	= NULL,
 	.interp_path	= "/libexec/ld-elf.so.1",
 	.sysvec		= &elf32_freebsd_sysvec,
 	.interp_newpath	= "/libexec/ld-elf32.so.1",
@@ -195,7 +191,7 @@ freebsd32_fetch_syscall_args(struct thread *td)
 	}
 
 	if (sa->code >= p->p_sysent->sv_size)
-		sa->callp = &p->p_sysent->sv_table[0];
+		sa->callp = &nosys_sysent;
 	else
 		sa->callp = &p->p_sysent->sv_table[sa->code];
 

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/*  Copyright (c) 2022, Intel Corporation
+/*  Copyright (c) 2023, Intel Corporation
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,6 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-/*$FreeBSD$*/
 
 /**
  * @file ice_strings.c
@@ -1043,6 +1042,10 @@ ice_state_to_str(enum ice_state state)
 		return "MULTIPLE_TCS";
 	case ICE_STATE_DO_FW_DEBUG_DUMP:
 		return "DO_FW_DEBUG_DUMP";
+	case ICE_STATE_LINK_ACTIVE_ON_DOWN:
+		return "LINK_ACTIVE_ON_DOWN";
+	case ICE_STATE_FIRST_INIT_LINK:
+		return "FIRST_INIT_LINK";
 	case ICE_STATE_LAST:
 		return NULL;
 	}

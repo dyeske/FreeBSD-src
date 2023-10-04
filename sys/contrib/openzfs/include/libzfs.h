@@ -125,11 +125,14 @@ typedef enum zfs_error {
 	EZFS_THREADCREATEFAILED, /* thread create failed */
 	EZFS_POSTSPLIT_ONLINE,	/* onlining a disk after splitting it */
 	EZFS_SCRUBBING,		/* currently scrubbing */
+	EZFS_ERRORSCRUBBING,	/* currently error scrubbing */
+	EZFS_ERRORSCRUB_PAUSED,	/* error scrub currently paused */
 	EZFS_NO_SCRUB,		/* no active scrub */
 	EZFS_DIFF,		/* general failure of zfs diff */
 	EZFS_DIFFDATA,		/* bad zfs diff data */
 	EZFS_POOLREADONLY,	/* pool is in read-only mode */
 	EZFS_SCRUB_PAUSED,	/* scrub currently paused */
+	EZFS_SCRUB_PAUSED_TO_CANCEL,	/* scrub currently paused */
 	EZFS_ACTIVE_POOL,	/* pool is imported on a different system */
 	EZFS_CRYPTOFAILED,	/* failed to setup encryption */
 	EZFS_NO_PENDING,	/* cannot cancel, no operation is pending */
@@ -153,6 +156,7 @@ typedef enum zfs_error {
 	EZFS_NOT_USER_NAMESPACE,	/* a file is not a user namespace */
 	EZFS_CKSUM,		/* insufficient replicas */
 	EZFS_RESUME_EXISTS,	/* Resume on existing dataset without force */
+	EZFS_SHAREFAILED,	/* filesystem share failed */
 	EZFS_UNKNOWN
 } zfs_error_t;
 
@@ -322,6 +326,15 @@ _LIBZFS_H nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
     boolean_t *, boolean_t *, boolean_t *);
 _LIBZFS_H int zpool_label_disk(libzfs_handle_t *, zpool_handle_t *,
     const char *);
+_LIBZFS_H int zpool_prepare_disk(zpool_handle_t *zhp, nvlist_t *vdev_nv,
+    const char *prepare_str, char **lines[], int *lines_cnt);
+_LIBZFS_H int zpool_prepare_and_label_disk(libzfs_handle_t *hdl,
+    zpool_handle_t *, const char *, nvlist_t *vdev_nv, const char *prepare_str,
+    char **lines[], int *lines_cnt);
+_LIBZFS_H char ** zpool_vdev_script_alloc_env(const char *pool_name,
+    const char *vdev_path, const char *vdev_upath,
+    const char *vdev_enc_sysfs_path, const char *opt_key, const char *opt_val);
+_LIBZFS_H void zpool_vdev_script_free_env(char **env);
 _LIBZFS_H uint64_t zpool_vdev_path_to_guid(zpool_handle_t *zhp,
     const char *path);
 

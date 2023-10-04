@@ -1,6 +1,5 @@
 #!/bin/sh
 #
-# $FreeBSD$
 #
 #
 # Common functions for virtual machine image build scripts.
@@ -57,14 +56,11 @@ vm_install_base() {
 		installworld installkernel distribution || \
 		err "\n\nCannot install the base system to ${DESTDIR}."
 
-	# Bootstrap etcupdate(8) and mergemaster(8) databases.
+	# Bootstrap etcupdate(8) database.
 	mkdir -p ${DESTDIR}/var/db/etcupdate
 	etcupdate extract -B \
 		-M "TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH}" \
 		-s ${WORLDDIR} -d ${DESTDIR}/var/db/etcupdate
-	sh ${WORLDDIR}/release/scripts/mm-mtree.sh -m ${WORLDDIR} \
-		-F "TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH}" \
-		-D ${DESTDIR}
 
 	echo '# Custom /etc/fstab for FreeBSD VM images' \
 		> ${DESTDIR}/etc/fstab
@@ -193,9 +189,9 @@ buildfs() {
 			-o fs=zroot\;mountpoint=none \
 			-o fs=zroot/ROOT\;mountpoint=none \
 			-o fs=zroot/ROOT/default\;mountpoint=/ \
+			-o fs=zroot/home\;mountpoint=/home \
 			-o fs=zroot/tmp\;mountpoint=/tmp\;exec=on\;setuid=off \
 			-o fs=zroot/usr\;mountpoint=/usr\;canmount=off \
-			-o fs=zroot/usr/home \
 			-o fs=zroot/usr/ports\;setuid=off \
 			-o fs=zroot/usr/src \
 			-o fs=zroot/usr/obj \

@@ -514,6 +514,8 @@
     <elf-symbol name='zpool_open' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_open_canfail' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_pool_state_to_name' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='zpool_prepare_and_label_disk' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='zpool_prepare_disk' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_print_unsup_feat' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_prop_align_right' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_prop_column_name' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -561,6 +563,8 @@
     <elf-symbol name='zpool_vdev_remove' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_vdev_remove_cancel' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_vdev_remove_wanted' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='zpool_vdev_script_alloc_env' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='zpool_vdev_script_free_env' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_vdev_split' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_wait' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zpool_wait_status' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -596,7 +600,7 @@
     <elf-symbol name='fletcher_4_superscalar_ops' size='128' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='libzfs_config_ops' size='16' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='sa_protocol_names' size='16' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
-    <elf-symbol name='spa_feature_table' size='2184' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='spa_feature_table' size='2240' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfeature_checks_disable' size='4' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_deleg_perm_tab' size='512' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='zfs_history_event_names' size='328' type='object-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -5717,7 +5721,8 @@
       <enumerator name='POOL_SCAN_NONE' value='0'/>
       <enumerator name='POOL_SCAN_SCRUB' value='1'/>
       <enumerator name='POOL_SCAN_RESILVER' value='2'/>
-      <enumerator name='POOL_SCAN_FUNCS' value='3'/>
+      <enumerator name='POOL_SCAN_ERRORSCRUB' value='3'/>
+      <enumerator name='POOL_SCAN_FUNCS' value='4'/>
     </enum-decl>
     <typedef-decl name='pool_scan_func_t' type-id='1b092565' id='7313fbe2'/>
     <enum-decl name='pool_scrub_cmd' id='a1474cbd'>
@@ -5741,7 +5746,8 @@
       <enumerator name='POOL_INITIALIZE_START' value='0'/>
       <enumerator name='POOL_INITIALIZE_CANCEL' value='1'/>
       <enumerator name='POOL_INITIALIZE_SUSPEND' value='2'/>
-      <enumerator name='POOL_INITIALIZE_FUNCS' value='3'/>
+      <enumerator name='POOL_INITIALIZE_UNINIT' value='3'/>
+      <enumerator name='POOL_INITIALIZE_FUNCS' value='4'/>
     </enum-decl>
     <typedef-decl name='pool_initialize_func_t' type-id='5c246ad4' id='7063e1ab'/>
     <enum-decl name='pool_trim_func' id='54ed608a'>
@@ -5807,7 +5813,8 @@
       <enumerator name='SPA_FEATURE_BLAKE3' value='36'/>
       <enumerator name='SPA_FEATURE_BLOCK_CLONING' value='37'/>
       <enumerator name='SPA_FEATURE_AVZ_V2' value='38'/>
-      <enumerator name='SPA_FEATURES' value='39'/>
+      <enumerator name='SPA_FEATURE_REDACTION_LIST_SPILL' value='39'/>
+      <enumerator name='SPA_FEATURES' value='40'/>
     </enum-decl>
     <typedef-decl name='spa_feature_t' type-id='33ecb627' id='d6618c78'/>
     <qualified-type-def type-id='22cce67b' const='yes' id='d2816df0'/>
@@ -8704,8 +8711,8 @@
     </function-decl>
   </abi-instr>
   <abi-instr address-size='64' path='module/zcommon/zfeature_common.c' language='LANG_C99'>
-    <array-type-def dimensions='1' type-id='83f29ca2' size-in-bits='17472' id='dd432c71'>
-      <subrange length='39' type-id='7359adad' id='ae4a9561'/>
+    <array-type-def dimensions='1' type-id='83f29ca2' size-in-bits='17920' id='dd432c71'>
+      <subrange length='40' type-id='7359adad' id='ae4a9561'/>
     </array-type-def>
     <enum-decl name='zfeature_flags' id='6db816a4'>
       <underlying-type type-id='9cac1fee'/>
