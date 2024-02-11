@@ -525,7 +525,7 @@ linux32_fetch_syscall_args(struct thread *td)
 	sa->args[2] = frame->tf_rdx;
 	sa->args[3] = frame->tf_rsi;
 	sa->args[4] = frame->tf_rdi;
-	sa->args[5] = frame->tf_rbp;	/* Unconfirmed */
+	sa->args[5] = frame->tf_rbp;
 	sa->code = frame->tf_rax;
 	sa->original_code = sa->code;
 
@@ -994,7 +994,7 @@ static Elf32_Brandinfo linux_muslbrand = {
 			    LINUX_BI_FUTEX_REQUEUE
 };
 
-Elf32_Brandinfo *linux_brandlist[] = {
+static Elf32_Brandinfo *linux_brandlist[] = {
 	&linux_brand,
 	&linux_glibc2brand,
 	&linux_muslbrand,

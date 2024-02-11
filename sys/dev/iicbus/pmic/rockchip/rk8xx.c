@@ -27,7 +27,6 @@
 
 #include "opt_platform.h"
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/clock.h>
@@ -123,7 +122,7 @@ rk8xx_poweroff(void *arg, int howto)
 					device_printf(sc->dev,
 					    "Powercycle PMIC\n");
 				}
-				val |= sc->dev_ctrl.pwr_rst_mask;;
+				val |= sc->dev_ctrl.pwr_rst_mask;
 			} else {
 				/* Poweroff PMIC that can't powercycle */
 				val |= sc->dev_ctrl.pwr_off_mask;

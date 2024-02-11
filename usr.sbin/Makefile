@@ -1,4 +1,3 @@
-#	From: @(#)Makefile	5.20 (Berkeley) 6/12/93
 
 .include <src.opts.mk>
 
@@ -6,6 +5,7 @@ SUBDIR=	adduser \
 	arp \
 	binmiscctl \
 	boottrace \
+	bsdconfig \
 	camdd \
 	cdcontrol \
 	chkgrp \
@@ -128,7 +128,6 @@ SUBDIR.${MK_BSNMP}+=	bsnmpd
 SUBDIR.${MK_OPENSSL}+=	certctl
 .endif
 SUBDIR.${MK_CXGBETOOL}+=	cxgbetool
-SUBDIR.${MK_DIALOG}+=	bsdconfig
 SUBDIR.${MK_EFI}+=	efivar efidp efibootmgr efitable efiwake
 .if ${MK_OPENSSL} != "no"
 SUBDIR.${MK_EFI}+=	uefisign

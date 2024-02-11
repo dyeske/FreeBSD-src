@@ -72,7 +72,6 @@
 #endif
 #include <opencrypto/cryptodev.h>
 #include <opencrypto/ktls.h>
-#include <vm/uma_dbg.h>
 #include <vm/vm.h>
 #include <vm/vm_pageout.h>
 #include <vm/vm_page.h>
@@ -1645,7 +1644,9 @@ out:
 
 	if (ifp != NULL)
 		if_rele(ifp);
+	CURVNET_SET(so->so_vnet);
 	sorele(so);
+	CURVNET_RESTORE();
 	ktls_free(tls);
 }
 
@@ -3161,8 +3162,9 @@ ktls_reclaim_thread(void *ctx)
 		 * backlogs of buffers to be encrypted, leading to
 		 * surges of traffic and potential NIC output drops.
 		 */
-		if (!vm_page_reclaim_contig_domain_ext(domain, VM_ALLOC_NORMAL,
-		    atop(ktls_maxlen), 0, ~0ul, PAGE_SIZE, 0, ktls_max_reclaim)) {
+		if (vm_page_reclaim_contig_domain_ext(domain, VM_ALLOC_NORMAL,
+		    atop(ktls_maxlen), 0, ~0ul, PAGE_SIZE, 0,
+		    ktls_max_reclaim) != 0) {
 			vm_wait_domain(domain);
 		} else {
 			sc->reclaims += ktls_max_reclaim;

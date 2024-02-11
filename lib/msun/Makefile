@@ -1,5 +1,3 @@
-#  @(#)Makefile 5.1beta 93/09/24
-#
 #  ====================================================
 #  Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
 #
@@ -156,7 +154,8 @@ COMMON_SRCS+=	catrig.c catrigf.c \
 	s_cproj.c s_cprojf.c s_creal.c s_crealf.c s_creall.c \
 	s_csinh.c s_csinhf.c s_ctanh.c s_ctanhf.c
 
-# FreeBSD's C library supplies these functions:
+# FreeBSD's C library supplies these functions (but note we still have s_frexp.c
+# and s_isnan.c enabled above, so they are duplicated):
 #COMMON_SRCS+=	s_fabs.c s_frexp.c s_isnan.c s_ldexp.c s_modf.c
 
 # Exclude the generic versions of what we provide in the MD area.

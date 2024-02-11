@@ -169,6 +169,7 @@ struct fileops shm_ops = {
 	.fo_add_seals = shm_add_seals,
 	.fo_fallocate = shm_fallocate,
 	.fo_fspacectl = shm_fspacectl,
+	.fo_cmp = file_kcmp_generic,
 	.fo_flags = DFLAG_PASSABLE | DFLAG_SEEKABLE,
 };
 
@@ -877,8 +878,9 @@ shm_dotruncate_largepage(struct shmfd *shmfd, off_t length, void *rl_cookie)
 			}
 			error = vm_page_reclaim_contig(aflags,
 			    pagesizes[psind] / PAGE_SIZE, 0, ~0,
-			    pagesizes[psind], 0) ? 0 :
-			    vm_wait_intr(object);
+			    pagesizes[psind], 0);
+			if (error == ENOMEM)
+				error = vm_wait_intr(object);
 			if (error != 0) {
 				VM_OBJECT_WLOCK(object);
 				return (error);

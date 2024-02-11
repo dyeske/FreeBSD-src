@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.380 2023/07/17 06:16:33 djm Exp $ */
+/* $OpenBSD: readconf.c,v 1.383 2023/10/12 02:18:18 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -178,7 +178,7 @@ typedef enum {
 	oFingerprintHash, oUpdateHostkeys, oHostbasedAcceptedAlgorithms,
 	oPubkeyAcceptedAlgorithms, oCASignatureAlgorithms, oProxyJump,
 	oSecurityKeyProvider, oKnownHostsCommand, oRequiredRSASize,
-	oEnableEscapeCommandline,
+	oEnableEscapeCommandline, oObscureKeystrokeTiming, oChannelTimeout,
 	oIgnore, oIgnoredUnknownOption, oDeprecated, oUnsupported
 } OpCodes;
 
@@ -327,6 +327,8 @@ static struct {
 	{ "knownhostscommand", oKnownHostsCommand },
 	{ "requiredrsasize", oRequiredRSASize },
 	{ "enableescapecommandline", oEnableEscapeCommandline },
+	{ "obscurekeystroketiming", oObscureKeystrokeTiming },
+	{ "channeltimeout", oChannelTimeout },
 
 	/* Client VersionAddendum - retired in bffe60ead024 */
 	{ "versionaddendum", oDeprecated },
@@ -353,7 +355,7 @@ kex_default_pk_alg(void)
 
 char *
 ssh_connection_hash(const char *thishost, const char *host, const char *portstr,
-    const char *user)
+    const char *user, const char *jumphost)
 {
 	struct ssh_digest_ctx *md;
 	u_char conn_hash[SSH_DIGEST_MAX_LENGTH];
@@ -363,6 +365,7 @@ ssh_connection_hash(const char *thishost, const char *host, const char *portstr,
 	    ssh_digest_update(md, host, strlen(host)) < 0 ||
 	    ssh_digest_update(md, portstr, strlen(portstr)) < 0 ||
 	    ssh_digest_update(md, user, strlen(user)) < 0 ||
+	    ssh_digest_update(md, jumphost, strlen(jumphost)) < 0 ||
 	    ssh_digest_final(md, conn_hash, sizeof(conn_hash)) < 0)
 		fatal_f("mux digest failed");
 	ssh_digest_free(md);
@@ -765,17 +768,19 @@ match_cfg_line(Options *options, char **condition, struct passwd *pw,
 			if (r == (negate ? 1 : 0))
 				this_result = result = 0;
 		} else if (strcasecmp(attrib, "exec") == 0) {
-			char *conn_hash_hex, *keyalias;
+			char *conn_hash_hex, *keyalias, *jmphost;
 
 			if (gethostname(thishost, sizeof(thishost)) == -1)
 				fatal("gethostname: %s", strerror(errno));
+			jmphost = option_clear_or_none(options->jump_host) ?
+			    "" : options->jump_host;
 			strlcpy(shorthost, thishost, sizeof(shorthost));
 			shorthost[strcspn(thishost, ".")] = '\0';
 			snprintf(portstr, sizeof(portstr), "%d", port);
 			snprintf(uidstr, sizeof(uidstr), "%llu",
 			    (unsigned long long)pw->pw_uid);
 			conn_hash_hex = ssh_connection_hash(thishost, host,
-			    portstr, ruser);
+			    portstr, ruser, jmphost);
 			keyalias = options->host_key_alias ?
 			    options->host_key_alias : host;
 
@@ -791,6 +796,7 @@ match_cfg_line(Options *options, char **condition, struct passwd *pw,
 			    "r", ruser,
 			    "u", pw->pw_name,
 			    "i", uidstr,
+			    "j", jmphost,
 			    (char *)NULL);
 			free(conn_hash_hex);
 			if (result != 1) {
@@ -2283,6 +2289,73 @@ parse_pubkey_algos:
 		intptr = &options->required_rsa_size;
 		goto parse_int;
 
+	case oObscureKeystrokeTiming:
+		value = -1;
+		while ((arg = argv_next(&ac, &av)) != NULL) {
+			if (value != -1) {
+				error("%s line %d: invalid arguments",
+				    filename, linenum);
+				goto out;
+			}
+			if (strcmp(arg, "yes") == 0 ||
+			    strcmp(arg, "true") == 0)
+				value = SSH_KEYSTROKE_DEFAULT_INTERVAL_MS;
+			else if (strcmp(arg, "no") == 0 ||
+			    strcmp(arg, "false") == 0)
+				value = 0;
+			else if (strncmp(arg, "interval:", 9) == 0) {
+				if ((errstr = atoi_err(arg + 9,
+				    &value)) != NULL) {
+					error("%s line %d: integer value %s.",
+					    filename, linenum, errstr);
+					goto out;
+				}
+				if (value <= 0 || value > 1000) {
+					error("%s line %d: value out of range.",
+					    filename, linenum);
+					goto out;
+				}
+			} else {
+				error("%s line %d: unsupported argument \"%s\"",
+				    filename, linenum, arg);
+				goto out;
+			}
+		}
+		if (value == -1) {
+			error("%s line %d: missing argument",
+			    filename, linenum);
+			goto out;
+		}
+		intptr = &options->obscure_keystroke_timing_interval;
+		if (*activep && *intptr == -1)
+			*intptr = value;
+		break;
+
+	case oChannelTimeout:
+		uvalue = options->num_channel_timeouts;
+		i = 0;
+		while ((arg = argv_next(&ac, &av)) != NULL) {
+			/* Allow "none" only in first position */
+			if (strcasecmp(arg, "none") == 0) {
+				if (i > 0 || ac > 0) {
+					error("%s line %d: keyword %s \"none\" "
+					    "argument must appear alone.",
+					    filename, linenum, keyword);
+					goto out;
+				}
+			} else if (parse_pattern_interval(arg,
+			    NULL, NULL) != 0) {
+				fatal("%s line %d: invalid channel timeout %s",
+				    filename, linenum, arg);
+			}
+			if (!*activep || uvalue != 0)
+				continue;
+			opt_array_append(filename, linenum, keyword,
+			    &options->channel_timeouts,
+			    &options->num_channel_timeouts, arg);
+		}
+		break;
+
 	case oDeprecated:
 		debug("%s line %d: Deprecated option \"%s\"",
 		    filename, linenum, keyword);
@@ -2533,7 +2606,10 @@ initialize_options(Options * options)
 	options->known_hosts_command = NULL;
 	options->required_rsa_size = -1;
 	options->enable_escape_commandline = -1;
+	options->obscure_keystroke_timing_interval = -1;
 	options->tag = NULL;
+	options->channel_timeouts = NULL;
+	options->num_channel_timeouts = 0;
 }
 
 /*
@@ -2734,6 +2810,10 @@ fill_default_options(Options * options)
 		options->required_rsa_size = SSH_RSA_MINIMUM_MODULUS_SIZE;
 	if (options->enable_escape_commandline == -1)
 		options->enable_escape_commandline = 0;
+	if (options->obscure_keystroke_timing_interval == -1) {
+		options->obscure_keystroke_timing_interval =
+		    SSH_KEYSTROKE_DEFAULT_INTERVAL_MS;
+	}
 
 	/* Expand KEX name lists */
 	all_cipher = cipher_alg_list(',', 0);
@@ -2770,6 +2850,16 @@ fill_default_options(Options * options)
 			v = NULL; \
 		} \
 	} while(0)
+#define CLEAR_ON_NONE_ARRAY(v, nv, none) \
+	do { \
+		if (options->nv == 1 && \
+		    strcasecmp(options->v[0], none) == 0) { \
+			free(options->v[0]); \
+			free(options->v); \
+			options->v = NULL; \
+			options->nv = 0; \
+		} \
+	} while (0)
 	CLEAR_ON_NONE(options->local_command);
 	CLEAR_ON_NONE(options->remote_command);
 	CLEAR_ON_NONE(options->proxy_command);
@@ -2778,6 +2868,9 @@ fill_default_options(Options * options)
 	CLEAR_ON_NONE(options->pkcs11_provider);
 	CLEAR_ON_NONE(options->sk_provider);
 	CLEAR_ON_NONE(options->known_hosts_command);
+	CLEAR_ON_NONE_ARRAY(channel_timeouts, num_channel_timeouts, "none");
+#undef CLEAR_ON_NONE
+#undef CLEAR_ON_NONE_ARRAY
 	if (options->jump_host != NULL &&
 	    strcmp(options->jump_host, "none") == 0 &&
 	    options->jump_port == 0 && options->jump_user == NULL) {
@@ -3276,6 +3369,16 @@ lookup_opcode_name(OpCodes code)
 static void
 dump_cfg_int(OpCodes code, int val)
 {
+	if (code == oObscureKeystrokeTiming) {
+		if (val == 0) {
+			printf("%s no\n", lookup_opcode_name(code));
+			return;
+		} else if (val == SSH_KEYSTROKE_DEFAULT_INTERVAL_MS) {
+			printf("%s yes\n", lookup_opcode_name(code));
+			return;
+		}
+		/* FALLTHROUGH */
+	}
 	printf("%s %d\n", lookup_opcode_name(code), val);
 }
 
@@ -3426,6 +3529,8 @@ dump_client_config(Options *o, const char *host)
 	dump_cfg_int(oServerAliveCountMax, o->server_alive_count_max);
 	dump_cfg_int(oServerAliveInterval, o->server_alive_interval);
 	dump_cfg_int(oRequiredRSASize, o->required_rsa_size);
+	dump_cfg_int(oObscureKeystrokeTiming,
+	    o->obscure_keystroke_timing_interval);
 
 	/* String options */
 	dump_cfg_string(oBindAddress, o->bind_address);
@@ -3470,6 +3575,8 @@ dump_client_config(Options *o, const char *host)
 	dump_cfg_strarray(oSetEnv, o->num_setenv, o->setenv);
 	dump_cfg_strarray_oneline(oLogVerbose,
 	    o->num_log_verbose, o->log_verbose);
+	dump_cfg_strarray_oneline(oChannelTimeout,
+	    o->num_channel_timeouts, o->channel_timeouts);
 
 	/* Special cases */
 

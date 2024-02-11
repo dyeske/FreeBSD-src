@@ -30,7 +30,7 @@
 
 verify_runnable "global"
 
-if [[ $(linux_version) -lt $(linux_version "4.5") ]]; then
+if is_linux && [[ $(linux_version) -lt $(linux_version "4.5") ]]; then
   log_unsupported "copy_file_range not available before Linux 4.5"
 fi
 
@@ -51,6 +51,8 @@ log_onexit cleanup
 log_must set_tunable64 TXG_TIMEOUT 5000
 
 log_must zpool create -o feature@block_cloning=enabled $TESTPOOL $DISKS
+
+log_must sync_pool $TESTPOOL true
 
 log_must dd if=/dev/urandom of=/$TESTPOOL/file bs=128K count=4
 log_must clonefile -f /$TESTPOOL/file /$TESTPOOL/clone 0 0 524288

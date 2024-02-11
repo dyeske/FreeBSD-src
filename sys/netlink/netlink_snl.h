@@ -514,6 +514,18 @@ snl_attr_get_flag(struct snl_state *ss __unused, struct nlattr *nla, const void 
 }
 
 static inline bool
+snl_attr_get_bytes(struct snl_state *ss __unused, struct nlattr *nla, const void *arg,
+    void *target)
+{
+	if ((size_t)NLA_DATA_LEN(nla) != (size_t)arg)
+		return (false);
+
+	memcpy(target, NLA_DATA_CONST(nla), (size_t)arg);
+
+	return (true);
+}
+
+static inline bool
 snl_attr_get_uint8(struct snl_state *ss __unused, struct nlattr *nla,
     const void *arg __unused, void *target)
 {
@@ -1036,19 +1048,23 @@ snl_realloc_msg_buffer(struct snl_writer *nw, size_t sz)
 	if (nw->error)
 		return (false);
 
-	void *new_base = snl_allocz(nw->ss, new_size);
-	if (new_base == NULL) {
+	if (snl_allocz(nw->ss, new_size) == NULL) {
 		nw->error = true;
 		return (false);
 	}
+	nw->size = new_size;
 
-	memcpy(new_base, nw->base, nw->offset);
-	if (nw->hdr != NULL) {
-		int hdr_off = (char *)(nw->hdr) - nw->base;
+	void *new_base = nw->ss->lb->base;
+	if (new_base != nw->base) {
+		memcpy(new_base, nw->base, nw->offset);
+		if (nw->hdr != NULL) {
+			int hdr_off = (char *)(nw->hdr) - nw->base;
 
-		nw->hdr = (struct nlmsghdr *)(void *)((char *)new_base + hdr_off);
+			nw->hdr = (struct nlmsghdr *)
+			    (void *)((char *)new_base + hdr_off);
+		}
+		nw->base = new_base;
 	}
-	nw->base = new_base;
 
 	return (true);
 }

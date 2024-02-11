@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)proc.h	8.15 (Berkeley) 5/19/95
  */
 
 #ifndef _SYS_PROC_H_
@@ -272,11 +270,12 @@ struct thread {
 	const char	*td_wmesg;	/* (t) Reason for sleep. */
 	volatile u_char td_owepreempt;  /* (k*) Preempt on last critical_exit */
 	u_char		td_tsqueue;	/* (t) Turnstile queue blocked on. */
-	u_char		td_stopsched;	/* (k) Scheduler stopped. */
+	u_char		_td_pad0[2];	/* Available. */
 	int		td_locks;	/* (k) Debug: count of non-spin locks */
 	int		td_rw_rlocks;	/* (k) Count of rwlock read locks. */
 	int		td_sx_slocks;	/* (k) Count of sx shared locks. */
 	int		td_lk_slocks;	/* (k) Count of lockmgr shared locks. */
+	struct lock_object *td_wantedlock; /* (k) Lock we are contending on */
 	struct turnstile *td_blocked;	/* (t) Lock thread is blocked on. */
 	const char	*td_lockname;	/* (t) Name of lock blocked on. */
 	LIST_HEAD(, turnstile) td_contested;	/* (q) Contested locks. */
@@ -314,8 +313,8 @@ struct thread {
 	struct osd	td_osd;		/* (k) Object specific data. */
 	struct vm_map_entry *td_map_def_user; /* (k) Deferred entries. */
 	pid_t		td_dbg_forked;	/* (c) Child pid for debugger. */
-	struct vnode	*td_vp_reserved;/* (k) Preallocated vnode. */
 	u_int		td_no_sleeping;	/* (k) Sleeping disabled count. */
+	struct vnode	*td_vp_reserved;/* (k) Preallocated vnode. */
 	void		*td_su;		/* (k) FFS SU private */
 	sbintime_t	td_sleeptimo;	/* (t) Sleep timeout. */
 	int		td_rtcgen;	/* (s) rtc_generation of abs. sleep */
@@ -430,7 +429,7 @@ do {									\
 
 #define	TD_LOCKS_INC(td)	((td)->td_locks++)
 #define	TD_LOCKS_DEC(td) do {						\
-	KASSERT(SCHEDULER_STOPPED_TD(td) || (td)->td_locks > 0,		\
+	KASSERT(SCHEDULER_STOPPED() || (td)->td_locks > 0,		\
 	    ("Thread %p owns no locks", (td)));				\
 	(td)->td_locks--;						\
 } while (0)
@@ -956,7 +955,7 @@ MALLOC_DECLARE(M_SUBPROC);
  * in a pid_t, as it is used to represent "no process group".
  */
 #define	PID_MAX		99999
-#define	NO_PID		100000
+#define	NO_PID		(PID_MAX + 1)
 #define	THREAD0_TID	NO_PID
 extern pid_t pid_max;
 
@@ -1073,6 +1072,16 @@ extern pid_t pid_max;
 } while (0)
 
 #define	THREAD_CAN_SLEEP()		((curthread)->td_no_sleeping == 0)
+
+#define	THREAD_CONTENDS_ON_LOCK(lo)		do {			\
+	MPASS(curthread->td_wantedlock == NULL);			\
+	curthread->td_wantedlock = lo;					\
+} while (0)
+
+#define	THREAD_CONTENTION_DONE(lo)		do {			\
+	MPASS(curthread->td_wantedlock == lo);				\
+	curthread->td_wantedlock = NULL;				\
+} while (0)
 
 #define	PIDHASH(pid)	(&pidhashtbl[(pid) & pidhash])
 #define	PIDHASHLOCK(pid) (&pidhashtbl_lock[((pid) & pidhashlock)])
@@ -1248,7 +1257,7 @@ void	cpu_fork_kthread_handler(struct thread *, void (*)(void *), void *);
 int	cpu_procctl(struct thread *td, int idtype, id_t id, int com,
 	    void *data);
 void	cpu_set_syscall_retval(struct thread *, int);
-void	cpu_set_upcall(struct thread *, void (*)(void *), void *,
+int	cpu_set_upcall(struct thread *, void (*)(void *), void *,
 	    stack_t *);
 int	cpu_set_user_tls(struct thread *, void *tls_base);
 void	cpu_thread_alloc(struct thread *);

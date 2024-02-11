@@ -1,4 +1,3 @@
-#	@(#)Makefile	8.1 (Berkeley) 6/18/93
 
 .include <src.opts.mk>
 
@@ -171,7 +170,6 @@ MAN=	aac.4 \
 	genetlink.4 \
 	geom.4 \
 	geom_linux_lvm.4 \
-	geom_map.4 \
 	geom_uzip.4 \
 	gif.4 \
 	${_gve.4} \
@@ -435,6 +433,7 @@ MAN=	aac.4 \
 	pcm.4 \
 	${_pf.4} \
 	${_pflog.4} \
+	${_pflow.4} \
 	${_pfsync.4} \
 	pim.4 \
 	pms.4 \
@@ -970,6 +969,7 @@ _atf_test_case.4=	atf-test-case.4
 .if ${MK_PF} != "no"
 _pf.4=		pf.4
 _pflog.4=	pflog.4
+_pflow.4=	pflow.4
 _pfsync.4=	pfsync.4
 .endif
 

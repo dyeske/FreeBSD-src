@@ -27,14 +27,11 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)tcp.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NETINET_TCP_H_
 #define _NETINET_TCP_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 
 #if __BSD_VISIBLE
@@ -81,6 +78,24 @@ struct tcphdr {
 	u_short	th_sum;			/* checksum */
 	u_short	th_urp;			/* urgent pointer */
 };
+
+static __inline uint16_t
+__tcp_get_flags(const struct tcphdr *th)
+{
+	return (((uint16_t)th->th_x2 << 8) | th->th_flags);
+}
+
+static __inline void
+__tcp_set_flags(struct tcphdr *th, uint16_t flags)
+{
+	th->th_x2 = (flags >> 8) & 0x0f;
+	th->th_flags = flags & 0xff;
+}
+
+#ifdef _KERNEL
+#define tcp_get_flags(th) __tcp_get_flags(th)
+#define tcp_set_flags(th, flags) __tcp_set_flags(th, flags)
+#endif
 
 #define	PADTCPOLEN(len)		((((len) / 4) + !!((len) % 4)) * 4)
 
@@ -203,7 +218,6 @@ struct tcphdr {
 #define TCP_PROC_ACCOUNTING 76	/* Do accounting on tcp cpu usage and counts */
 #define TCP_USE_CMP_ACKS 77 	/* The transport can handle the Compressed mbuf acks */
 #define	TCP_PERF_INFO	78	/* retrieve accounting counters */
-#define	TCP_LRD		79	/* toggle Lost Retransmission Detection for A/B testing */
 #define	TCP_KEEPINIT	128	/* N, time to establish connection */
 #define	TCP_KEEPIDLE	256	/* L,N,X start keeplives after this period */
 #define	TCP_KEEPINTVL	512	/* L,N interval between keepalives */
@@ -446,7 +460,7 @@ struct tcp_fastopen {
 	int enable;
 	uint8_t psk[TCP_FASTOPEN_PSK_LEN];
 };
-#endif
+
 #define TCP_FUNCTION_NAME_LEN_MAX 32
 
 struct tcp_function_set {
@@ -533,4 +547,5 @@ struct tcp_hybrid_req {
 #define TCP_REUSPORT_LB_NUMA_NODOM	(-2) /* remove numa binding */
 #define TCP_REUSPORT_LB_NUMA_CURDOM	(-1) /* bind to current domain */
 
+#endif /* __BSD_VISIBLE */
 #endif /* !_NETINET_TCP_H_ */

@@ -29,9 +29,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"     @(#)ls.1	8.7 (Berkeley) 7/29/94
-.\"
-.Dd July 18, 2023
+.Dd January 12, 2024
 .Dt LS 1
 .Os
 .Sh NAME
@@ -459,9 +457,9 @@ options all override each other; the last one specified determines
 the file time used.
 .Pp
 The
-.Fl S
+.Fl S , t
 and
-.Fl t
+.Fl v
 options override each other; the last one specified determines
 the sort order used.
 .Pp
@@ -927,7 +925,7 @@ command appeared in
 The
 .Fl v
 option was added in
-.Fx 14.0 .
+.Fx 13.2 .
 .Sh BUGS
 To maintain backward compatibility, the relationships between the many
 options are quite complex.

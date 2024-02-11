@@ -35,8 +35,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)kern_prot.c	8.6 (Berkeley) 1/21/94
  */
 
 /*
@@ -1465,11 +1463,14 @@ cr_bsd_visible(struct ucred *u1, struct ucred *u2)
 {
 	int error;
 
-	if ((error = cr_canseeotheruids(u1, u2)))
+	error = cr_canseeotheruids(u1, u2);
+	if (error != 0)
 		return (error);
-	if ((error = cr_canseeothergids(u1, u2)))
+	error = cr_canseeothergids(u1, u2);
+	if (error != 0)
 		return (error);
-	if ((error = cr_canseejailproc(u1, u2)))
+	error = cr_canseejailproc(u1, u2);
+	if (error != 0)
 		return (error);
 	return (0);
 }
@@ -2192,17 +2193,6 @@ cru2xt(struct thread *td, struct xucred *xcr)
 
 	cru2x(td->td_ucred, xcr);
 	xcr->cr_pid = td->td_proc->p_pid;
-}
-
-/*
- * Set initial process credentials.
- * Callers are responsible for providing the reference for provided credentials.
- */
-void
-proc_set_cred_init(struct proc *p, struct ucred *newcred)
-{
-
-	p->p_ucred = crcowget(newcred);
 }
 
 /*

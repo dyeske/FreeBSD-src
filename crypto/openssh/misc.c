@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.186 2023/08/18 01:37:41 djm Exp $ */
+/* $OpenBSD: misc.c,v 1.189 2023/10/12 03:36:32 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005-2020 Damien Miller.  All rights reserved.
@@ -1249,7 +1249,7 @@ static char *
 vdollar_percent_expand(int *parseerror, int dollar, int percent,
     const char *string, va_list ap)
 {
-#define EXPAND_MAX_KEYS	16
+#define EXPAND_MAX_KEYS	64
 	u_int num_keys = 0, i;
 	struct {
 		const char *key;
@@ -2493,6 +2493,43 @@ format_absolute_time(uint64_t t, char *buf, size_t len)
 	strftime(buf, len, "%Y-%m-%dT%H:%M:%S", &tm);
 }
 
+/*
+ * Parse a "pattern=interval" clause (e.g. a ChannelTimeout).
+ * Returns 0 on success or non-zero on failure.
+ * Caller must free *typep.
+ */
+int
+parse_pattern_interval(const char *s, char **typep, int *secsp)
+{
+	char *cp, *sdup;
+	int secs;
+
+	if (typep != NULL)
+		*typep = NULL;
+	if (secsp != NULL)
+		*secsp = 0;
+	if (s == NULL)
+		return -1;
+	sdup = xstrdup(s);
+
+	if ((cp = strchr(sdup, '=')) == NULL || cp == sdup) {
+		free(sdup);
+		return -1;
+	}
+	*cp++ = '\0';
+	if ((secs = convtime(cp)) < 0) {
+		free(sdup);
+		return -1;
+	}
+	/* success */
+	if (typep != NULL)
+		*typep = xstrdup(sdup);
+	if (secsp != NULL)
+		*secsp = secs;
+	free(sdup);
+	return 0;
+}
+
 /* check if path is absolute */
 int
 path_absolute(const char *path)
@@ -2901,22 +2938,33 @@ ptimeout_deadline_ms(struct timespec *pt, long ms)
 	ptimeout_deadline_tsp(pt, &p);
 }
 
+/* Specify a poll/ppoll deadline at wall clock monotime 'when' (timespec) */
+void
+ptimeout_deadline_monotime_tsp(struct timespec *pt, struct timespec *when)
+{
+	struct timespec now, t;
+
+	monotime_ts(&now);
+
+	if (timespeccmp(&now, when, >=)) {
+		/* 'when' is now or in the past. Timeout ASAP */
+		pt->tv_sec = 0;
+		pt->tv_nsec = 0;
+	} else {
+		timespecsub(when, &now, &t);
+		ptimeout_deadline_tsp(pt, &t);
+	}
+}
+
 /* Specify a poll/ppoll deadline at wall clock monotime 'when' */
 void
 ptimeout_deadline_monotime(struct timespec *pt, time_t when)
 {
-	struct timespec now, t;
+	struct timespec t;
 
 	t.tv_sec = when;
 	t.tv_nsec = 0;
-	monotime_ts(&now);
-
-	if (timespeccmp(&now, &t, >=))
-		ptimeout_deadline_sec(pt, 0);
-	else {
-		timespecsub(&t, &now, &t);
-		ptimeout_deadline_tsp(pt, &t);
-	}
+	ptimeout_deadline_monotime_tsp(pt, &t);
 }
 
 /* Get a poll(2) timeout value in milliseconds */

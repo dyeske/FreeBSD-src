@@ -317,6 +317,8 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_RESUME_EXISTS:
 		return (dgettext(TEXT_DOMAIN, "Resuming recv on existing "
 		    "dataset without force"));
+	case EZFS_RAIDZ_EXPAND_IN_PROGRESS:
+		return (dgettext(TEXT_DOMAIN, "raidz expansion in progress"));
 	case EZFS_UNKNOWN:
 		return (dgettext(TEXT_DOMAIN, "unknown error"));
 	default:
@@ -511,7 +513,7 @@ zfs_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 		zfs_verror(hdl, EZFS_NOT_USER_NAMESPACE, fmt, ap);
 		break;
 	default:
-		zfs_error_aux(hdl, "%s", strerror(error));
+		zfs_error_aux(hdl, "%s", zfs_strerror(error));
 		zfs_verror(hdl, EZFS_UNKNOWN, fmt, ap);
 		break;
 	}
@@ -763,8 +765,11 @@ zpool_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 	case ZFS_ERR_IOC_ARG_BADTYPE:
 		zfs_verror(hdl, EZFS_IOC_NOTSUPPORTED, fmt, ap);
 		break;
+	case ZFS_ERR_RAIDZ_EXPAND_IN_PROGRESS:
+		zfs_verror(hdl, EZFS_RAIDZ_EXPAND_IN_PROGRESS, fmt, ap);
+		break;
 	default:
-		zfs_error_aux(hdl, "%s", strerror(error));
+		zfs_error_aux(hdl, "%s", zfs_strerror(error));
 		zfs_verror(hdl, EZFS_UNKNOWN, fmt, ap);
 	}
 
@@ -1963,7 +1968,7 @@ zfs_version_print(void)
 	char *kver = zfs_version_kernel();
 	if (kver == NULL) {
 		fprintf(stderr, "zfs_version_kernel() failed: %s\n",
-		    strerror(errno));
+		    zfs_strerror(errno));
 		return (-1);
 	}
 
