@@ -91,6 +91,10 @@
         ..
         usr.sbin
             dtrace
+                amd64
+                    arrays
+                    ..
+                ..
                 common
                     aggs
                     ..
@@ -269,10 +273,6 @@
                     ustack
                     ..
                 ..
-                amd64
-                    arrays
-                    ..
-                ..
             ..
             zfsd
             ..
@@ -372,6 +372,8 @@
             ..
             rpc
             ..
+            secure
+            ..
             setjmp
             ..
             ssp
@@ -419,6 +421,8 @@
         ..
         libdevdctl
         ..
+        libdiff
+        ..
         libexecinfo
         ..
         libkvm
@@ -458,6 +462,8 @@
             ..
             atf-sh
             ..
+        ..
+        nuageinit
         ..
         rc
         ..
@@ -831,6 +837,8 @@
                     etalon
                     ..
                 ..
+                virstor
+                ..
             ..
         ..
         kern
@@ -1137,6 +1145,8 @@
         ..
         lockf
         ..
+        lorder
+        ..
         m4
         ..
         mkimg
@@ -1183,17 +1193,19 @@
         ..
         tftp
         ..
+        touch
+        ..
         tr
         ..
         truncate
         ..
         tsort
         ..
-        units
-        ..
         unifdef
         ..
         uniq
+        ..
+        units
         ..
         unzip
         ..
@@ -1215,6 +1227,8 @@
     usr.sbin
         chown
         ..
+        ctladm
+        ..
         daemon
         ..
         etcupdate
@@ -1226,6 +1240,8 @@
         jail
         ..
         makefs
+        ..
+        mixer
         ..
         newsyslog
         ..

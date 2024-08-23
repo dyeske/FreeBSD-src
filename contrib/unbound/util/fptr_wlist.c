@@ -131,6 +131,7 @@ fptr_whitelist_comm_timer(void (*fptr)(void*))
 	else if(fptr == &pending_udp_timer_delay_cb) return 1;
 	else if(fptr == &worker_stat_timer_cb) return 1;
 	else if(fptr == &worker_probe_timer_cb) return 1;
+	else if(fptr == &validate_suspend_timer_cb) return 1;
 #ifdef UB_ON_WINDOWS
 	else if(fptr == &wsvc_cron_cb) return 1;
 #endif
@@ -391,7 +392,7 @@ fptr_whitelist_modenv_detect_cycle(int (*fptr)(
 	return 0;
 }
 
-int 
+int
 fptr_whitelist_mod_init(int (*fptr)(struct module_env* env, int id))
 {
 	if(fptr == &iter_init) return 1;
@@ -419,7 +420,7 @@ fptr_whitelist_mod_init(int (*fptr)(struct module_env* env, int id))
 	return 0;
 }
 
-int 
+int
 fptr_whitelist_mod_deinit(void (*fptr)(struct module_env* env, int id))
 {
 	if(fptr == &iter_deinit) return 1;
@@ -443,6 +444,28 @@ fptr_whitelist_mod_deinit(void (*fptr)(struct module_env* env, int id))
 #endif
 #ifdef USE_IPSET
 	else if(fptr == &ipset_deinit) return 1;
+#endif
+	return 0;
+}
+
+int
+fptr_whitelist_mod_startup(int (*fptr)(struct module_env* env, int id))
+{
+#ifdef USE_IPSET
+	if(fptr == &ipset_startup) return 1;
+#else
+	(void)fptr;
+#endif
+	return 0;
+}
+
+int
+fptr_whitelist_mod_destartup(void (*fptr)(struct module_env* env, int id))
+{
+#ifdef USE_IPSET
+	if(fptr == &ipset_destartup) return 1;
+#else
+	(void)fptr;
 #endif
 	return 0;
 }

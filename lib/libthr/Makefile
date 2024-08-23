@@ -1,14 +1,18 @@
-#
-# All library objects contain FreeBSD revision strings by default; they may be
-# excluded as a space-saving measure.  To produce a library that does
-# not contain these strings, add -DSTRIP_FBSDID (see <sys/cdefs.h>) to CFLAGS
-# below.
-
 PACKAGE=	clibs
 SHLIBDIR?= /lib
 
+LIBADD=	c sys
+.if defined(COMPAT_libcompat)
+# XXX: work around gcc -m32 + bfd ld path issue for DT_NEEDED symbols.
+# https://sourceware.org/bugzilla/show_bug.cgi?id=31395
+LDFLAGS+=	-Wl,--rpath=/usr/lib${COMPAT_libcompat}
+.endif
+
 .include <src.opts.mk>
 MK_SSP=	no
+# SSP forced off already implies FORTIFY_SOURCE=0, but we must make sure that
+# one cannot turn it back on.
+FORTIFY_SOURCE=	0
 
 LIB=thr
 SHLIB_MAJOR= 3
@@ -27,6 +31,10 @@ CFLAGS+=-I${SRCTOP}/lib/libthread_db
 
 CFLAGS.thr_stack.c+=	-Wno-cast-align
 CFLAGS.rtld_malloc.c+=	-Wno-cast-align
+# Disable compiler builtins so that the compiler does not optimize away rtld's
+# attempts to force early PLT resolution for certain functions that may be
+# replaced by builtins.
+CFLAGS.thr_rtld.c+=	-fno-builtin
 CFLAGS.thr_symbols.c+=	-Wno-missing-variable-declarations
 .if ${MK_ASAN} != "no"
 # False-positive ASAN error claiming the local "struct sigaction act;" is

@@ -1,4 +1,4 @@
-# $NetBSD: varmod-indirect.mk,v 1.14 2023/11/19 22:32:44 rillig Exp $
+# $NetBSD: varmod-indirect.mk,v 1.20 2024/07/04 17:47:54 rillig Exp $
 #
 # Tests for indirect variable modifiers, such as in ${VAR:${M_modifiers}}.
 # These can be used for very basic purposes like converting a string to either
@@ -15,7 +15,7 @@
 # The following expression generates a parse error since its indirect
 # modifier contains more than a sole expression.
 #
-# expect+1: Unknown modifier "${"
+# expect+1: while evaluating variable "value" with value "value": Unknown modifier "${"
 .if ${value:L:${:US}${:U,value,replacement,}} != "S,value,replacement,}"
 .  warning unexpected
 .endif
@@ -47,7 +47,7 @@
 # error.  Because of this parse error, this feature cannot be used reasonably
 # in practice.
 #
-# expect+2: Unknown modifier "${"
+# expect+2: while evaluating variable "value" with value "value": Unknown modifier "${"
 #.MAKEFLAGS: -dvc
 .if ${value:L:${:UM*}S,value,replaced,} == "M*S,value,replaced,}"
 # expect+1: warning: FIXME: this expression should have resulted in a parse error rather than returning the unparsed portion of the expression.
@@ -160,7 +160,7 @@ M_NoPrimes=	${PRIMES:${M_ListToSkip}}
 .endfor
 
 # An error in an indirect modifier.
-# expect+1: Unknown modifier "Z"
+# expect+1: while evaluating variable "UNDEF" with value "": Unknown modifier "Z"
 .for var in before ${UNDEF:${:UZ}} after
 # expect+2: before
 # expect+1: after
@@ -191,7 +191,7 @@ _:=	before ${UNDEF:${:U}} after
 # XXX: This expands to ${UNDEF:Z}, which will behave differently if the
 # variable '_' is used in a context where the expression ${_} is
 # parsed but not evaluated.
-# expect+1: Unknown modifier "Z"
+# expect+1: while evaluating variable "UNDEF" with value "": Unknown modifier "Z"
 _:=	before ${UNDEF:${:UZ}} after
 
 .MAKEFLAGS: -d0
@@ -255,4 +255,28 @@ _:=	before ${UNDEF:${:UZ}} after
 .  error
 .endif
 
-all:
+
+# In parse-only mode, the indirect modifiers must not be evaluated.
+#
+# Before var.c 1.1098 from 2024-02-04, the expression for an indirect modifier
+# was partially evaluated (only the variable value, without applying any
+# modifiers) and then interpreted as modifiers to the main expression.
+#
+# The expression ${:UZ} starts with the value "", and in parse-only mode, the
+# modifier ':UZ' does not modify the expression value.  This results in an
+# empty string for the indirect modifiers, generating no warning.
+.if 0 && ${VAR:${:UZ}}
+.endif
+# The expression ${M_invalid} starts with the value "Z", which is an unknown
+# modifier.  Trying to apply this unknown modifier generated a warning.
+M_invalid=	Z
+.if 0 && ${VAR:${M_invalid}}
+.endif
+# The ':S' modifier does not change the expression value in parse-only mode,
+# keeping the "Z", which is then skipped in parse-only mode.
+.if 0 && ${VAR:${M_invalid:S,^,N*,:ts:}}
+.endif
+# The ':@' modifier does not change the expression value in parse-only mode,
+# keeping the "Z", which is then skipped in parse-only mode.
+.if 0 && ${VAR:${M_invalid:@m@N*$m@:ts:}}
+.endif

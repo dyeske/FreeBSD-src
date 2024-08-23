@@ -594,8 +594,19 @@ restart:
 	error = mac_vnode_check_create(td->td_ucred, nd.ni_dvp, &nd.ni_cnd,
 	    &vattr);
 #endif
-	if (error == 0)
+	if (error == 0) {
+		/*
+		 * The prior lookup may have left LK_SHARED in cn_lkflags,
+		 * and VOP_CREATE technically only requires the new vnode to
+		 * be locked shared. Most filesystems will return the new vnode
+		 * locked exclusive regardless, but we should explicitly
+		 * specify that here since we require it and assert to that
+		 * effect below.
+		 */
+		nd.ni_cnd.cn_lkflags = (nd.ni_cnd.cn_lkflags & ~LK_SHARED) |
+		    LK_EXCLUSIVE;
 		error = VOP_CREATE(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
+	}
 	NDFREE_PNBUF(&nd);
 	if (error) {
 		VOP_VPUT_PAIR(nd.ni_dvp, NULL, true);
@@ -1669,7 +1680,14 @@ uipc_shutdown(struct socket *so, enum shutdown_how how)
 	int error;
 
 	SOCK_LOCK(so);
-	if ((so->so_state &
+	if (SOLISTENING(so)) {
+		if (how != SHUT_WR) {
+			so->so_error = ECONNABORTED;
+			solisten_wakeup(so);    /* unlocks so */
+		} else
+			SOCK_UNLOCK(so);
+		return (ENOTCONN);
+	} else if ((so->so_state &
 	    (SS_ISCONNECTED | SS_ISCONNECTING | SS_ISDISCONNECTING)) == 0) {
 		/*
 		 * POSIX mandates us to just return ENOTCONN when shutdown(2) is
@@ -1691,14 +1709,6 @@ uipc_shutdown(struct socket *so, enum shutdown_how how)
 		}
 	} else
 		error = 0;
-	if (SOLISTENING(so)) {
-		if (how != SHUT_WR) {
-			so->so_error = ECONNABORTED;
-			solisten_wakeup(so);    /* unlocks so */
-		} else
-			SOCK_UNLOCK(so);
-		return (0);
-	}
 	SOCK_UNLOCK(so);
 
 	switch (how) {
@@ -2180,7 +2190,7 @@ unp_disconnect(struct unpcb *unp, struct unpcb *unp2)
 
 	if (m != NULL) {
 		unp_scan(m, unp_freerights);
-		m_freem(m);
+		m_freemp(m);
 	}
 }
 
@@ -3270,7 +3280,7 @@ unp_dispose(struct socket *so)
 
 	if (m != NULL) {
 		unp_scan(m, unp_freerights);
-		m_freem(m);
+		m_freemp(m);
 	}
 }
 

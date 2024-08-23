@@ -104,6 +104,7 @@
 #include "opt_inet.h"
 #include "opt_inet6.h"
 #include "opt_kern_tls.h"
+#include "opt_ktrace.h"
 #include "opt_sctp.h"
 
 #include <sys/param.h>
@@ -172,7 +173,6 @@ static int	filt_soread(struct knote *kn, long hint);
 static void	filt_sowdetach(struct knote *kn);
 static int	filt_sowrite(struct knote *kn, long hint);
 static int	filt_soempty(struct knote *kn, long hint);
-static int inline hhook_run_socket(struct socket *so, void *hctx, int32_t h_id);
 fo_kqfilter_t	soo_kqfilter;
 
 static struct filterops soread_filtops = {
@@ -200,8 +200,11 @@ MALLOC_DEFINE(M_PCB, "pcb", "protocol control block");
 	VNET_ASSERT(curvnet != NULL,					\
 	    ("%s:%d curvnet is NULL, so=%p", __func__, __LINE__, (so)));
 
+#ifdef SOCKET_HHOOK
 VNET_DEFINE(struct hhook_head *, socket_hhh[HHOOK_SOCKET_LAST + 1]);
 #define	V_socket_hhh		VNET(socket_hhh)
+static inline int hhook_run_socket(struct socket *, void *, int32_t);
+#endif
 
 /*
  * Limit on the number of connections in the listen queue waiting
@@ -276,6 +279,20 @@ socket_zone_change(void *tag)
 }
 
 static void
+socket_init(void *tag)
+{
+
+	socket_zone = uma_zcreate("socket", sizeof(struct socket), NULL, NULL,
+	    NULL, NULL, UMA_ALIGN_PTR, 0);
+	maxsockets = uma_zone_set_max(socket_zone, maxsockets);
+	uma_zone_set_warning(socket_zone, "kern.ipc.maxsockets limit reached");
+	EVENTHANDLER_REGISTER(maxsockets_change, socket_zone_change, NULL,
+	    EVENTHANDLER_PRI_FIRST);
+}
+SYSINIT(socket, SI_SUB_PROTO_DOMAININIT, SI_ORDER_ANY, socket_init, NULL);
+
+#ifdef SOCKET_HHOOK
+static void
 socket_hhook_register(int subtype)
 {
 
@@ -292,19 +309,6 @@ socket_hhook_deregister(int subtype)
 	if (hhook_head_deregister(V_socket_hhh[subtype]) != 0)
 		printf("%s: WARNING: unable to deregister hook\n", __func__);
 }
-
-static void
-socket_init(void *tag)
-{
-
-	socket_zone = uma_zcreate("socket", sizeof(struct socket), NULL, NULL,
-	    NULL, NULL, UMA_ALIGN_PTR, 0);
-	maxsockets = uma_zone_set_max(socket_zone, maxsockets);
-	uma_zone_set_warning(socket_zone, "kern.ipc.maxsockets limit reached");
-	EVENTHANDLER_REGISTER(maxsockets_change, socket_zone_change, NULL,
-	    EVENTHANDLER_PRI_FIRST);
-}
-SYSINIT(socket, SI_SUB_PROTO_DOMAININIT, SI_ORDER_ANY, socket_init, NULL);
 
 static void
 socket_vnet_init(const void *unused __unused)
@@ -328,6 +332,7 @@ socket_vnet_uninit(const void *unused __unused)
 }
 VNET_SYSUNINIT(socket_vnet_uninit, SI_SUB_PROTO_DOMAININIT, SI_ORDER_ANY,
     socket_vnet_uninit, NULL);
+#endif	/* SOCKET_HHOOK */
 
 /*
  * Initialise maxsockets.  This SYSINIT must be run after
@@ -422,12 +427,14 @@ soalloc(struct vnet *vnet)
 	    __func__, __LINE__, so));
 	so->so_vnet = vnet;
 #endif
+#ifdef SOCKET_HHOOK
 	/* We shouldn't need the so_global_mtx */
 	if (hhook_run_socket(so, NULL, HHOOK_SOCKET_CREATE)) {
 		/* Do we need more comprehensive error returns? */
 		uma_zfree(socket_zone, so);
 		return (NULL);
 	}
+#endif
 	mtx_lock(&so_global_mtx);
 	so->so_gencnt = ++so_gencnt;
 	++numopensockets;
@@ -463,7 +470,9 @@ sodealloc(struct socket *so)
 #ifdef MAC
 	mac_socket_destroy(so);
 #endif
+#ifdef SOCKET_HHOOK
 	hhook_run_socket(so, NULL, HHOOK_SOCKET_CLOSE);
+#endif
 
 	khelp_destroy_osd(&so->osd);
 	if (SOLISTENING(so)) {
@@ -522,8 +531,12 @@ socreate(int dom, struct socket **aso, int type, int proto,
 
 	MPASS(prp->pr_attach);
 
-	if (IN_CAPABILITY_MODE(td) && (prp->pr_flags & PR_CAPATTACH) == 0)
-		return (ECAPMODE);
+	if ((prp->pr_flags & PR_CAPATTACH) == 0) {
+		if (CAP_TRACING(td))
+			ktrcapfail(CAPFAIL_PROTO, &proto);
+		if (IN_CAPABILITY_MODE(td))
+			return (ECAPMODE);
+	}
 
 	if (prison_check_af(cred, prp->pr_domain->dom_family) != 0)
 		return (EPROTONOSUPPORT);
@@ -756,14 +769,27 @@ solisten_clone(struct socket *head)
 	 * including those completely irrelevant to a new born socket.  For
 	 * compatibility with older versions we will inherit a list of
 	 * meaningful options.
+	 * The crucial bit to inherit is SO_ACCEPTFILTER.  We need it present
+	 * in the child socket for soisconnected() promoting socket from the
+	 * incomplete queue to complete.  It will be cleared before the child
+	 * gets available to accept(2).
 	 */
-	so->so_options = head->so_options & (SO_KEEPALIVE | SO_DONTROUTE |
-	    SO_LINGER | SO_OOBINLINE | SO_NOSIGPIPE);
+	so->so_options = head->so_options & (SO_ACCEPTFILTER | SO_KEEPALIVE |
+	    SO_DONTROUTE | SO_LINGER | SO_OOBINLINE | SO_NOSIGPIPE);
 	so->so_linger = head->so_linger;
 	so->so_state = head->so_state;
 	so->so_fibnum = head->so_fibnum;
 	so->so_proto = head->so_proto;
 	so->so_cred = crhold(head->so_cred);
+#ifdef SOCKET_HHOOK
+	if (V_socket_hhh[HHOOK_SOCKET_NEWCONN]->hhh_nhooks > 0) {
+		if (hhook_run_socket(so, head, HHOOK_SOCKET_NEWCONN)) {
+			sodealloc(so);
+			log(LOG_DEBUG, "%s: hhook run failed\n", __func__);
+			return (NULL);
+		}
+	}
+#endif
 #ifdef MAC
 	mac_socket_newconn(head, so);
 #endif
@@ -922,6 +948,10 @@ sopeeloff(struct socket *head)
 	so->so_snd.sb_timeo = head->so_snd.sb_timeo;
 	so->so_rcv.sb_flags |= head->so_rcv.sb_flags & SB_AUTOSIZE;
 	so->so_snd.sb_flags |= head->so_snd.sb_flags & SB_AUTOSIZE;
+	if ((so->so_proto->pr_flags & PR_SOCKBUF) == 0) {
+		so->so_snd.sb_mtx = &so->so_snd_mtx;
+		so->so_rcv.sb_mtx = &so->so_rcv_mtx;
+	}
 
 	soref(so);
 
@@ -1063,8 +1093,10 @@ solisten_proto(struct socket *so, int backlog)
 	sbrcv_timeo = so->so_rcv.sb_timeo;
 	sbsnd_timeo = so->so_snd.sb_timeo;
 
-	sbdestroy(so, SO_SND);
-	sbdestroy(so, SO_RCV);
+	if (!(so->so_proto->pr_flags & PR_SOCKBUF)) {
+		sbdestroy(so, SO_SND);
+		sbdestroy(so, SO_RCV);
+	}
 
 #ifdef INVARIANTS
 	bzero(&so->so_rcv,
@@ -1624,8 +1656,8 @@ out:
  * counts if EINTR/ERESTART are returned.  Data and control buffers are freed
  * on return.
  */
-int
-sosend_generic(struct socket *so, struct sockaddr *addr, struct uio *uio,
+static int
+sosend_generic_locked(struct socket *so, struct sockaddr *addr, struct uio *uio,
     struct mbuf *top, struct mbuf *control, int flags, struct thread *td)
 {
 	long space;
@@ -1641,6 +1673,9 @@ sosend_generic(struct socket *so, struct sockaddr *addr, struct uio *uio,
 	tls = NULL;
 	tls_rtype = TLS_RLTYPE_APP;
 #endif
+
+	SOCK_IO_SEND_ASSERT_LOCKED(so);
+
 	if (uio != NULL)
 		resid = uio->uio_resid;
 	else if ((top->m_flags & M_PKTHDR) != 0)
@@ -1670,10 +1705,6 @@ sosend_generic(struct socket *so, struct sockaddr *addr, struct uio *uio,
 	if (control != NULL)
 		clen = control->m_len;
 
-	error = SOCK_IO_SEND_LOCK(so, SBLOCKWAIT(flags));
-	if (error)
-		goto out;
-
 #ifdef KERN_TLS
 	tls_send_flag = 0;
 	tls = ktls_hold(so->so_snd.sb_tls_info);
@@ -1696,7 +1727,7 @@ sosend_generic(struct socket *so, struct sockaddr *addr, struct uio *uio,
 
 		if (resid == 0 && !ktls_permit_empty_frames(tls)) {
 			error = EINVAL;
-			goto release;
+			goto out;
 		}
 	}
 #endif
@@ -1707,13 +1738,13 @@ restart:
 		if (so->so_snd.sb_state & SBS_CANTSENDMORE) {
 			SOCKBUF_UNLOCK(&so->so_snd);
 			error = EPIPE;
-			goto release;
+			goto out;
 		}
 		if (so->so_error) {
 			error = so->so_error;
 			so->so_error = 0;
 			SOCKBUF_UNLOCK(&so->so_snd);
-			goto release;
+			goto out;
 		}
 		if ((so->so_state & SS_ISCONNECTED) == 0) {
 			/*
@@ -1727,7 +1758,7 @@ restart:
 				if (!(resid == 0 && clen != 0)) {
 					SOCKBUF_UNLOCK(&so->so_snd);
 					error = ENOTCONN;
-					goto release;
+					goto out;
 				}
 			} else if (addr == NULL) {
 				SOCKBUF_UNLOCK(&so->so_snd);
@@ -1735,7 +1766,7 @@ restart:
 					error = ENOTCONN;
 				else
 					error = EDESTADDRREQ;
-				goto release;
+				goto out;
 			}
 		}
 		space = sbspace(&so->so_snd);
@@ -1745,7 +1776,7 @@ restart:
 		    clen > so->so_snd.sb_hiwat) {
 			SOCKBUF_UNLOCK(&so->so_snd);
 			error = EMSGSIZE;
-			goto release;
+			goto out;
 		}
 		if (space < resid + clen &&
 		    (atomic || space < so->so_snd.sb_lowat || space < clen)) {
@@ -1753,12 +1784,12 @@ restart:
 			    (flags & (MSG_NBIO | MSG_DONTWAIT)) != 0) {
 				SOCKBUF_UNLOCK(&so->so_snd);
 				error = EWOULDBLOCK;
-				goto release;
+				goto out;
 			}
 			error = sbwait(so, SO_SND);
 			SOCKBUF_UNLOCK(&so->so_snd);
 			if (error)
-				goto release;
+				goto out;
 			goto restart;
 		}
 		SOCKBUF_UNLOCK(&so->so_snd);
@@ -1803,7 +1834,7 @@ restart:
 					    ((flags & MSG_EOR) ? M_EOR : 0));
 				if (top == NULL) {
 					error = EFAULT; /* only possible error */
-					goto release;
+					goto out;
 				}
 				space -= resid - uio->uio_resid;
 				resid = uio->uio_resid;
@@ -1867,12 +1898,10 @@ restart:
 			control = NULL;
 			top = NULL;
 			if (error)
-				goto release;
+				goto out;
 		} while (resid && space > 0);
 	} while (resid);
 
-release:
-	SOCK_IO_SEND_UNLOCK(so);
 out:
 #ifdef KERN_TLS
 	if (tls != NULL)
@@ -1882,6 +1911,20 @@ out:
 		m_freem(top);
 	if (control != NULL)
 		m_freem(control);
+	return (error);
+}
+
+int
+sosend_generic(struct socket *so, struct sockaddr *addr, struct uio *uio,
+    struct mbuf *top, struct mbuf *control, int flags, struct thread *td)
+{
+	int error;
+
+	error = SOCK_IO_SEND_LOCK(so, SBLOCKWAIT(flags));
+	if (error)
+		return (error);
+	error = sosend_generic_locked(so, addr, uio, top, control, flags, td);
+	SOCK_IO_SEND_UNLOCK(so);
 	return (error);
 }
 
@@ -2038,11 +2081,11 @@ sockbuf_pushsync(struct sockbuf *sb, struct mbuf *nextrecord)
  * mbuf **mp0 for use in returning the chain.  The uio is then used only for
  * the count in uio_resid.
  */
-int
-soreceive_generic(struct socket *so, struct sockaddr **psa, struct uio *uio,
-    struct mbuf **mp0, struct mbuf **controlp, int *flagsp)
+static int
+soreceive_generic_locked(struct socket *so, struct sockaddr **psa,
+    struct uio *uio, struct mbuf **mp, struct mbuf **controlp, int *flagsp)
 {
-	struct mbuf *m, **mp;
+	struct mbuf *m;
 	int flags, error, offset;
 	ssize_t len;
 	struct protosw *pr = so->so_proto;
@@ -2051,25 +2094,15 @@ soreceive_generic(struct socket *so, struct sockaddr **psa, struct uio *uio,
 	ssize_t orig_resid = uio->uio_resid;
 	bool report_real_len = false;
 
-	mp = mp0;
-	if (psa != NULL)
-		*psa = NULL;
-	if (controlp != NULL)
-		*controlp = NULL;
+	SOCK_IO_RECV_ASSERT_LOCKED(so);
+
+	error = 0;
 	if (flagsp != NULL) {
 		report_real_len = *flagsp & MSG_TRUNC;
 		*flagsp &= ~MSG_TRUNC;
 		flags = *flagsp &~ MSG_EOR;
 	} else
 		flags = 0;
-	if (flags & MSG_OOB)
-		return (soreceive_rcvoob(so, uio, flags));
-	if (mp != NULL)
-		*mp = NULL;
-
-	error = SOCK_IO_RECV_LOCK(so, SBLOCKWAIT(flags));
-	if (error)
-		return (error);
 
 restart:
 	SOCKBUF_LOCK(&so->so_rcv);
@@ -2527,6 +2560,33 @@ dontblock:
 	if (flagsp != NULL)
 		*flagsp |= flags;
 release:
+	return (error);
+}
+
+int
+soreceive_generic(struct socket *so, struct sockaddr **psa, struct uio *uio,
+    struct mbuf **mp, struct mbuf **controlp, int *flagsp)
+{
+	int error, flags;
+
+	if (psa != NULL)
+		*psa = NULL;
+	if (controlp != NULL)
+		*controlp = NULL;
+	if (flagsp != NULL) {
+		flags = *flagsp;
+		if ((flags & MSG_OOB) != 0)
+			return (soreceive_rcvoob(so, uio, flags));
+	} else {
+		flags = 0;
+	}
+	if (mp != NULL)
+		*mp = NULL;
+
+	error = SOCK_IO_RECV_LOCK(so, SBLOCKWAIT(flags));
+	if (error)
+		return (error);
+	error = soreceive_generic_locked(so, psa, uio, mp, controlp, flagsp);
 	SOCK_IO_RECV_UNLOCK(so);
 	return (error);
 }
@@ -2534,67 +2594,22 @@ release:
 /*
  * Optimized version of soreceive() for stream (TCP) sockets.
  */
-int
-soreceive_stream(struct socket *so, struct sockaddr **psa, struct uio *uio,
-    struct mbuf **mp0, struct mbuf **controlp, int *flagsp)
+static int
+soreceive_stream_locked(struct socket *so, struct sockbuf *sb,
+    struct sockaddr **psa, struct uio *uio, struct mbuf **mp0,
+    struct mbuf **controlp, int flags)
 {
-	int len = 0, error = 0, flags, oresid;
-	struct sockbuf *sb;
+	int len = 0, error = 0, oresid;
 	struct mbuf *m, *n = NULL;
 
-	/* We only do stream sockets. */
-	if (so->so_type != SOCK_STREAM)
-		return (EINVAL);
-	if (psa != NULL)
-		*psa = NULL;
-	if (flagsp != NULL)
-		flags = *flagsp &~ MSG_EOR;
-	else
-		flags = 0;
-	if (controlp != NULL)
-		*controlp = NULL;
-	if (flags & MSG_OOB)
-		return (soreceive_rcvoob(so, uio, flags));
-	if (mp0 != NULL)
-		*mp0 = NULL;
-
-	sb = &so->so_rcv;
-
-#ifdef KERN_TLS
-	/*
-	 * KTLS store TLS records as records with a control message to
-	 * describe the framing.
-	 *
-	 * We check once here before acquiring locks to optimize the
-	 * common case.
-	 */
-	if (sb->sb_tls_info != NULL)
-		return (soreceive_generic(so, psa, uio, mp0, controlp,
-		    flagsp));
-#endif
-
-	/* Prevent other readers from entering the socket. */
-	error = SOCK_IO_RECV_LOCK(so, SBLOCKWAIT(flags));
-	if (error)
-		return (error);
-	SOCKBUF_LOCK(sb);
-
-#ifdef KERN_TLS
-	if (sb->sb_tls_info != NULL) {
-		SOCKBUF_UNLOCK(sb);
-		SOCK_IO_RECV_UNLOCK(so);
-		return (soreceive_generic(so, psa, uio, mp0, controlp,
-		    flagsp));
-	}
-#endif
+	SOCK_IO_RECV_ASSERT_LOCKED(so);
 
 	/* Easy one, no space to copyout anything. */
-	if (uio->uio_resid == 0) {
-		error = EINVAL;
-		goto out;
-	}
+	if (uio->uio_resid == 0)
+		return (EINVAL);
 	oresid = uio->uio_resid;
 
+	SOCKBUF_LOCK(sb);
 	/* We will never ever get anything unless we are or were connected. */
 	if (!(so->so_state & (SS_ISCONNECTED|SS_ISDISCONNECTED))) {
 		error = ENOTCONN;
@@ -2748,6 +2763,62 @@ out:
 	SBLASTRECORDCHK(sb);
 	SBLASTMBUFCHK(sb);
 	SOCKBUF_UNLOCK(sb);
+	return (error);
+}
+
+int
+soreceive_stream(struct socket *so, struct sockaddr **psa, struct uio *uio,
+    struct mbuf **mp0, struct mbuf **controlp, int *flagsp)
+{
+	struct sockbuf *sb;
+	int error, flags;
+
+	sb = &so->so_rcv;
+
+	/* We only do stream sockets. */
+	if (so->so_type != SOCK_STREAM)
+		return (EINVAL);
+	if (psa != NULL)
+		*psa = NULL;
+	if (flagsp != NULL)
+		flags = *flagsp & ~MSG_EOR;
+	else
+		flags = 0;
+	if (controlp != NULL)
+		*controlp = NULL;
+	if (flags & MSG_OOB)
+		return (soreceive_rcvoob(so, uio, flags));
+	if (mp0 != NULL)
+		*mp0 = NULL;
+
+#ifdef KERN_TLS
+	/*
+	 * KTLS store TLS records as records with a control message to
+	 * describe the framing.
+	 *
+	 * We check once here before acquiring locks to optimize the
+	 * common case.
+	 */
+	if (sb->sb_tls_info != NULL)
+		return (soreceive_generic(so, psa, uio, mp0, controlp,
+		    flagsp));
+#endif
+
+	/*
+	 * Prevent other threads from reading from the socket.  This lock may be
+	 * dropped in order to sleep waiting for data to arrive.
+	 */
+	error = SOCK_IO_RECV_LOCK(so, SBLOCKWAIT(flags));
+	if (error)
+		return (error);
+#ifdef KERN_TLS
+	if (__predict_false(sb->sb_tls_info != NULL)) {
+		SOCK_IO_RECV_UNLOCK(so);
+		return (soreceive_generic(so, psa, uio, mp0, controlp,
+		    flagsp));
+	}
+#endif
+	error = soreceive_stream_locked(so, sb, psa, uio, mp0, controlp, flags);
 	SOCK_IO_RECV_UNLOCK(so);
 	return (error);
 }
@@ -2867,13 +2938,10 @@ soreceive_dgram(struct socket *so, struct sockaddr **psa, struct uio *uio,
 		    ("m->m_type == %d", m->m_type));
 		if (psa != NULL)
 			*psa = sodupsockaddr(mtod(m, struct sockaddr *),
-			    M_NOWAIT);
+			    M_WAITOK);
 		m = m_free(m);
 	}
-	if (m == NULL) {
-		/* XXXRW: Can this happen? */
-		return (0);
-	}
+	KASSERT(m, ("%s: no data or control after soname", __func__));
 
 	/*
 	 * Packet to copyout() is now in 'm' and it is disconnected from the
@@ -3000,11 +3068,12 @@ sorflush(struct socket *so)
 
 }
 
+#ifdef SOCKET_HHOOK
 /*
  * Wrapper for Socket established helper hook.
  * Parameters: socket, context of the hook point, hook id.
  */
-static int inline
+static inline int
 hhook_run_socket(struct socket *so, void *hctx, int32_t h_id)
 {
 	struct socket_hhook_data hhook_data = {
@@ -3021,6 +3090,7 @@ hhook_run_socket(struct socket *so, void *hctx, int32_t h_id)
 	/* Ugly but needed, since hhooks return void for now */
 	return (hhook_data.status);
 }
+#endif
 
 /*
  * Perhaps this routine, and sooptcopyout(), below, ought to come in an
@@ -3249,10 +3319,12 @@ sosetopt(struct socket *so, struct sockopt *sopt)
 			break;
 
 		default:
+#ifdef SOCKET_HHOOK
 			if (V_socket_hhh[HHOOK_SOCKET_OPT]->hhh_nhooks > 0)
 				error = hhook_run_socket(so, sopt,
 				    HHOOK_SOCKET_OPT);
 			else
+#endif
 				error = ENOPROTOOPT;
 			break;
 		}
@@ -3466,10 +3538,12 @@ integer:
 			goto integer;
 
 		default:
+#ifdef SOCKET_HHOOK
 			if (V_socket_hhh[HHOOK_SOCKET_OPT]->hhh_nhooks > 0)
 				error = hhook_run_socket(so, sopt,
 				    HHOOK_SOCKET_OPT);
 			else
+#endif
 				error = ENOPROTOOPT;
 			break;
 		}
@@ -3766,8 +3840,12 @@ filt_soread(struct knote *kn, long hint)
 	} else if (sbavail(&so->so_rcv) >= so->so_rcv.sb_lowat)
 		return (1);
 
+#ifdef SOCKET_HHOOK
 	/* This hook returning non-zero indicates an event, not error */
 	return (hhook_run_socket(so, NULL, HHOOK_FILT_SOREAD));
+#else
+	return (0);
+#endif
 }
 
 static void
@@ -3796,7 +3874,9 @@ filt_sowrite(struct knote *kn, long hint)
 	SOCK_SENDBUF_LOCK_ASSERT(so);
 	kn->kn_data = sbspace(&so->so_snd);
 
+#ifdef SOCKET_HHOOK
 	hhook_run_socket(so, kn, HHOOK_FILT_SOWRITE);
+#endif
 
 	if (so->so_snd.sb_state & SBS_CANTSENDMORE) {
 		kn->kn_flags |= EV_EOF;
@@ -4238,6 +4318,7 @@ sotoxsocket(struct socket *so, struct xsocket *xso)
 	xso->so_error = so->so_error;
 	xso->so_uid = so->so_cred->cr_uid;
 	xso->so_pgid = so->so_sigio ? so->so_sigio->sio_pgid : 0;
+	SOCK_LOCK(so);
 	if (SOLISTENING(so)) {
 		xso->so_qlen = so->sol_qlen;
 		xso->so_incqlen = so->sol_incqlen;
@@ -4250,34 +4331,7 @@ sotoxsocket(struct socket *so, struct xsocket *xso)
 		sbtoxsockbuf(&so->so_snd, &xso->so_snd);
 		sbtoxsockbuf(&so->so_rcv, &xso->so_rcv);
 	}
-}
-
-struct sockbuf *
-so_sockbuf_rcv(struct socket *so)
-{
-
-	return (&so->so_rcv);
-}
-
-struct sockbuf *
-so_sockbuf_snd(struct socket *so)
-{
-
-	return (&so->so_snd);
-}
-
-int
-so_state_get(const struct socket *so)
-{
-
-	return (so->so_state);
-}
-
-void
-so_state_set(struct socket *so, int val)
-{
-
-	so->so_state = val;
+	SOCK_UNLOCK(so);
 }
 
 int
@@ -4306,77 +4360,4 @@ so_error_set(struct socket *so, int val)
 {
 
 	so->so_error = val;
-}
-
-int
-so_linger_get(const struct socket *so)
-{
-
-	return (so->so_linger);
-}
-
-void
-so_linger_set(struct socket *so, int val)
-{
-
-	KASSERT(val >= 0 && val <= USHRT_MAX && val <= (INT_MAX / hz),
-	    ("%s: val %d out of range", __func__, val));
-
-	so->so_linger = val;
-}
-
-struct protosw *
-so_protosw_get(const struct socket *so)
-{
-
-	return (so->so_proto);
-}
-
-void
-so_protosw_set(struct socket *so, struct protosw *val)
-{
-
-	so->so_proto = val;
-}
-
-void
-so_sorwakeup(struct socket *so)
-{
-
-	sorwakeup(so);
-}
-
-void
-so_sowwakeup(struct socket *so)
-{
-
-	sowwakeup(so);
-}
-
-void
-so_sorwakeup_locked(struct socket *so)
-{
-
-	sorwakeup_locked(so);
-}
-
-void
-so_sowwakeup_locked(struct socket *so)
-{
-
-	sowwakeup_locked(so);
-}
-
-void
-so_lock(struct socket *so)
-{
-
-	SOCK_LOCK(so);
-}
-
-void
-so_unlock(struct socket *so)
-{
-
-	SOCK_UNLOCK(so);
 }

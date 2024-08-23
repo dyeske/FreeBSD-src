@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.c,v 1.402 2023/11/24 00:31:30 dtucker Exp $ */
+/* $OpenBSD: clientloop.c,v 1.403 2024/02/21 05:57:34 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -517,7 +517,7 @@ send_chaff(struct ssh *ssh)
 {
 	int r;
 
-	if ((ssh->kex->flags & KEX_HAS_PING) == 0)
+	if (ssh->kex == NULL || (ssh->kex->flags & KEX_HAS_PING) == 0)
 		return 0;
 	/* XXX probabilistically send chaff? */
 	/*
@@ -608,8 +608,9 @@ obfuscate_keystroke_timing(struct ssh *ssh, struct timespec *timeout,
 		if (timespeccmp(&now, &chaff_until, >=)) {
 			/* Stop if there have been no keystrokes for a while */
 			stop_reason = "chaff time expired";
-		} else if (timespeccmp(&now, &next_interval, >=)) {
-			/* Otherwise if we were due to send, then send chaff */
+		} else if (timespeccmp(&now, &next_interval, >=) &&
+		    !ssh_packet_have_data_to_write(ssh)) {
+			/* If due to send but have no data, then send chaff */
 			if (send_chaff(ssh))
 				nchaff++;
 		}

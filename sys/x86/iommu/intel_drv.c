@@ -67,6 +67,7 @@
 #include <x86/include/busdma_impl.h>
 #include <dev/iommu/busdma_iommu.h>
 #include <x86/iommu/intel_reg.h>
+#include <x86/iommu/x86_iommu.h>
 #include <x86/iommu/intel_dmar.h>
 
 #ifdef DEV_APIC
@@ -179,9 +180,9 @@ dmar_identify(driver_t *driver, device_t parent)
 		return;
 	haw = dmartbl->Width + 1;
 	if ((1ULL << (haw + 1)) > BUS_SPACE_MAXADDR)
-		dmar_high = BUS_SPACE_MAXADDR;
+		iommu_high = BUS_SPACE_MAXADDR;
 	else
-		dmar_high = 1ULL << (haw + 1);
+		iommu_high = 1ULL << (haw + 1);
 	if (bootverbose) {
 		printf("DMAR HAW=%d flags=<%b>\n", dmartbl->Width,
 		    (unsigned)dmartbl->Flags,
@@ -409,7 +410,6 @@ dmar_attach(device_t dev)
 	int i, error;
 
 	unit = device_get_softc(dev);
-	unit->dev = dev;
 	unit->iommu.unit = device_get_unit(dev);
 	unit->iommu.dev = dev;
 	dmaru = dmar_find_by_index(unit->iommu.unit);
@@ -422,6 +422,7 @@ dmar_attach(device_t dev)
 	    &unit->reg_rid, RF_ACTIVE);
 	if (unit->regs == NULL) {
 		device_printf(dev, "cannot allocate register window\n");
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (ENOMEM);
 	}
 	unit->hw_ver = dmar_read4(unit, DMAR_VER_REG);
@@ -449,6 +450,7 @@ dmar_attach(device_t dev)
 	error = dmar_alloc_irq(dev, unit, DMAR_INTR_FAULT);
 	if (error != 0) {
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 	if (DMAR_HAS_QI(unit)) {
@@ -463,6 +465,7 @@ dmar_attach(device_t dev)
 		error = dmar_alloc_irq(dev, unit, DMAR_INTR_QI);
 		if (error != 0) {
 			dmar_release_resources(dev, unit);
+			dmar_devs[unit->iommu.unit] = NULL;
 			return (error);
 		}
 	}
@@ -490,18 +493,20 @@ dmar_attach(device_t dev)
 	 * address translation after the required invalidations are
 	 * done.
 	 */
-	dmar_pgalloc(unit->ctx_obj, 0, IOMMU_PGF_WAITOK | IOMMU_PGF_ZERO);
+	iommu_pgalloc(unit->ctx_obj, 0, IOMMU_PGF_WAITOK | IOMMU_PGF_ZERO);
 	DMAR_LOCK(unit);
 	error = dmar_load_root_entry_ptr(unit);
 	if (error != 0) {
 		DMAR_UNLOCK(unit);
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 	error = dmar_inv_ctx_glob(unit);
 	if (error != 0) {
 		DMAR_UNLOCK(unit);
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 	if ((unit->hw_ecap & DMAR_ECAP_DI) != 0) {
@@ -509,6 +514,7 @@ dmar_attach(device_t dev)
 		if (error != 0) {
 			DMAR_UNLOCK(unit);
 			dmar_release_resources(dev, unit);
+			dmar_devs[unit->iommu.unit] = NULL;
 			return (error);
 		}
 	}
@@ -517,16 +523,19 @@ dmar_attach(device_t dev)
 	error = dmar_init_fault_log(unit);
 	if (error != 0) {
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 	error = dmar_init_qi(unit);
 	if (error != 0) {
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 	error = dmar_init_irt(unit);
 	if (error != 0) {
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 
@@ -542,6 +551,7 @@ dmar_attach(device_t dev)
 	error = iommu_init_busdma(&unit->iommu);
 	if (error != 0) {
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 
@@ -551,6 +561,7 @@ dmar_attach(device_t dev)
 	if (error != 0) {
 		DMAR_UNLOCK(unit);
 		dmar_release_resources(dev, unit);
+		dmar_devs[unit->iommu.unit] = NULL;
 		return (error);
 	}
 	DMAR_UNLOCK(unit);

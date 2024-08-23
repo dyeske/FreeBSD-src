@@ -172,7 +172,7 @@ tcp_usr_attach(struct socket *so, int proto, struct thread *td)
 	if (error)
 		goto out;
 	inp = sotoinpcb(so);
-	tp = tcp_newtcpcb(inp);
+	tp = tcp_newtcpcb(inp, NULL);
 	if (tp == NULL) {
 		error = ENOBUFS;
 		in_pcbfree(inp);
@@ -391,7 +391,7 @@ tcp_usr_listen(struct socket *so, int backlog, struct thread *td)
 	}
 	SOCK_UNLOCK(so);
 
-	if (IS_FASTOPEN(tp->t_flags))
+	if (tp->t_flags & TF_FASTOPEN)
 		tp->t_tfo_pending = tcp_fastopen_alloc_counter();
 
 out:
@@ -448,7 +448,7 @@ tcp6_usr_listen(struct socket *so, int backlog, struct thread *td)
 	}
 	SOCK_UNLOCK(so);
 
-	if (IS_FASTOPEN(tp->t_flags))
+	if (tp->t_flags & TF_FASTOPEN)
 		tp->t_tfo_pending = tcp_fastopen_alloc_counter();
 
 	if (error != 0)
@@ -807,18 +807,17 @@ tcp_usr_shutdown(struct socket *so, enum shutdown_how how)
 	int error = 0;
 
 	SOCK_LOCK(so);
-	if ((so->so_state &
-	    (SS_ISCONNECTED | SS_ISCONNECTING | SS_ISDISCONNECTING)) == 0) {
-		SOCK_UNLOCK(so);
-		return (ENOTCONN);
-	}
 	if (SOLISTENING(so)) {
 		if (how != SHUT_WR) {
 			so->so_error = ECONNABORTED;
 			solisten_wakeup(so);	/* unlocks so */
 		} else
 			SOCK_UNLOCK(so);
-		return (0);
+		return (ENOTCONN);
+	} else if ((so->so_state &
+	    (SS_ISCONNECTED | SS_ISCONNECTING | SS_ISDISCONNECTING)) == 0) {
+		SOCK_UNLOCK(so);
+		return (ENOTCONN);
 	}
 	SOCK_UNLOCK(so);
 
@@ -882,8 +881,7 @@ tcp_usr_rcvd(struct socket *so, int flags)
 	 * application response data, or failing that, when the DELACK timer
 	 * expires.
 	 */
-	if (IS_FASTOPEN(tp->t_flags) &&
-	    (tp->t_state == TCPS_SYN_RECEIVED))
+	if ((tp->t_flags & TF_FASTOPEN) && (tp->t_state == TCPS_SYN_RECEIVED))
 		goto out;
 #ifdef TCP_OFFLOAD
 	if (tp->t_flags & TF_TOE)
@@ -1090,7 +1088,7 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 				sbflush(&so->so_snd);
 				goto out;
 			}
-			if (IS_FASTOPEN(tp->t_flags))
+			if (tp->t_flags & TF_FASTOPEN)
 				tcp_fastopen_connect(tp);
 			else {
 				tp->snd_wnd = TTCP_CLIENT_SND_WND;
@@ -1156,7 +1154,7 @@ tcp_usr_send(struct socket *so, int flags, struct mbuf *m,
 			/*
 			 * Not going to contemplate SYN|URG
 			 */
-			if (IS_FASTOPEN(tp->t_flags))
+			if (tp->t_flags & TF_FASTOPEN)
 				tp->t_flags &= ~TF_FASTOPEN;
 #ifdef INET6
 			if (isipv6)
@@ -1573,7 +1571,7 @@ tcp_fill_info(const struct tcpcb *tp, struct tcp_info *ti)
 		default:
 			break;
 	}
-	if (IS_FASTOPEN(tp->t_flags))
+	if (tp->t_flags & TF_FASTOPEN)
 		ti->tcpi_options |= TCPI_OPT_TFO;
 
 	ti->tcpi_rto = tp->t_rxtcur * tick;
@@ -1602,6 +1600,7 @@ tcp_fill_info(const struct tcpcb *tp, struct tcp_info *ti)
 	ti->tcpi_rcv_numsacks = tp->rcv_numsacks;
 	ti->tcpi_rcv_adv = tp->rcv_adv;
 	ti->tcpi_dupacks = tp->t_dupacks;
+	ti->tcpi_rttmin = tp->t_rttlow;
 #ifdef TCP_OFFLOAD
 	if (tp->t_flags & TF_TOE) {
 		ti->tcpi_options |= TCPI_OPT_TOE;
@@ -1704,11 +1703,7 @@ tcp_ctloutput_set(struct inpcb *inp, struct sockopt *sopt)
 		default:
 			return (error);
 		}
-		INP_WLOCK(inp);
-		if (inp->inp_flags & INP_DROPPED) {
-			INP_WUNLOCK(inp);
-			return (ECONNRESET);
-		}
+		INP_WLOCK_RECHECK(inp);
 	} else if (sopt->sopt_name == TCP_FUNCTION_BLK) {
 		/*
 		 * Protect the TCP option TCP_FUNCTION_BLK so
@@ -1723,8 +1718,7 @@ tcp_ctloutput_set(struct inpcb *inp, struct sockopt *sopt)
 		if (error)
 			return (error);
 
-		INP_WLOCK(inp);
-		tp = intotcpcb(inp);
+		INP_WLOCK_RECHECK(inp);
 
 		blk = find_and_ref_tcp_functions(&fsn);
 		if (blk == NULL) {
@@ -1737,31 +1731,16 @@ tcp_ctloutput_set(struct inpcb *inp, struct sockopt *sopt)
 			INP_WUNLOCK(inp);
 			return (0);
 		}
-		if (tp->t_state != TCPS_CLOSED) {
-			/*
-			 * The user has advanced the state
-			 * past the initial point, we may not
-			 * be able to switch.
-			 */
-			if (blk->tfb_tcp_handoff_ok != NULL) {
-				/*
-				 * Does the stack provide a
-				 * query mechanism, if so it may
-				 * still be possible?
-				 */
-				error = (*blk->tfb_tcp_handoff_ok)(tp);
-			} else
-				error = EINVAL;
-			if (error) {
-				refcount_release(&blk->tfb_refcnt);
-				INP_WUNLOCK(inp);
-				return(error);
-			}
-		}
 		if (blk->tfb_flags & TCP_FUNC_BEING_REMOVED) {
 			refcount_release(&blk->tfb_refcnt);
 			INP_WUNLOCK(inp);
 			return (ENOENT);
+		}
+		error = (*blk->tfb_tcp_handoff_ok)(tp);
+		if (error) {
+			refcount_release(&blk->tfb_refcnt);
+			INP_WUNLOCK(inp);
+			return (error);
 		}
 		/*
 		 * Ensure the new stack takes ownership with a
@@ -1908,37 +1887,6 @@ CTASSERT(TCP_CA_NAME_MAX <= TCP_LOG_ID_LEN);
 CTASSERT(TCP_LOG_REASON_LEN <= TCP_LOG_ID_LEN);
 #endif
 
-#ifdef KERN_TLS
-static int
-copyin_tls_enable(struct sockopt *sopt, struct tls_enable *tls)
-{
-	struct tls_enable_v0 tls_v0;
-	int error;
-
-	if (sopt->sopt_valsize == sizeof(tls_v0)) {
-		error = sooptcopyin(sopt, &tls_v0, sizeof(tls_v0),
-		    sizeof(tls_v0));
-		if (error)
-			return (error);
-		memset(tls, 0, sizeof(*tls));
-		tls->cipher_key = tls_v0.cipher_key;
-		tls->iv = tls_v0.iv;
-		tls->auth_key = tls_v0.auth_key;
-		tls->cipher_algorithm = tls_v0.cipher_algorithm;
-		tls->cipher_key_len = tls_v0.cipher_key_len;
-		tls->iv_len = tls_v0.iv_len;
-		tls->auth_algorithm = tls_v0.auth_algorithm;
-		tls->auth_key_len = tls_v0.auth_key_len;
-		tls->flags = tls_v0.flags;
-		tls->tls_vmajor = tls_v0.tls_vmajor;
-		tls->tls_vminor = tls_v0.tls_vminor;
-		return (0);
-	}
-
-	return (sooptcopyin(sopt, tls, sizeof(*tls), sizeof(*tls)));
-}
-#endif
-
 extern struct cc_algo newreno_cc_algo;
 
 static int
@@ -2009,7 +1957,7 @@ no_mem_needed:
 	tp = intotcpcb(inp);
 	if (ptr != NULL)
 		memset(ptr, 0, mem_sz);
-	cc_mem.ccvc.tcp = tp;
+	cc_mem.tp = tp;
 	/*
 	 * We once again hold a write lock over the tcb so it's
 	 * safe to do these things without ordering concerns.
@@ -2229,9 +2177,19 @@ unlock_and_done:
 
 			INP_WLOCK_RECHECK(inp);
 			if (optval > 0 && optval <= tp->t_maxseg &&
-			    optval + 40 >= V_tcp_minmss)
+			    optval + 40 >= V_tcp_minmss) {
 				tp->t_maxseg = optval;
-			else
+				if (tp->t_maxseg < V_tcp_mssdflt) {
+					/*
+					 * The MSS is so small we should not process incoming
+					 * SACK's since we are subject to attack in such a
+					 * case.
+					 */
+					tp->t_flags2 |= TF2_PROC_SACK_PROHIBIT;
+				} else {
+					tp->t_flags2 &= ~TF2_PROC_SACK_PROHIBIT;
+				}
+			} else
 				error = EINVAL;
 			goto unlock_and_done;
 
@@ -2286,15 +2244,16 @@ unlock_and_done:
 #ifdef KERN_TLS
 		case TCP_TXTLS_ENABLE:
 			INP_WUNLOCK(inp);
-			error = copyin_tls_enable(sopt, &tls);
-			if (error)
+			error = ktls_copyin_tls_enable(sopt, &tls);
+			if (error != 0)
 				break;
 			error = ktls_enable_tx(so, &tls);
+			ktls_cleanup_tls_enable(&tls);
 			break;
 		case TCP_TXTLS_MODE:
 			INP_WUNLOCK(inp);
 			error = sooptcopyin(sopt, &ui, sizeof(ui), sizeof(ui));
-			if (error)
+			if (error != 0)
 				return (error);
 
 			INP_WLOCK_RECHECK(inp);
@@ -2303,11 +2262,11 @@ unlock_and_done:
 			break;
 		case TCP_RXTLS_ENABLE:
 			INP_WUNLOCK(inp);
-			error = sooptcopyin(sopt, &tls, sizeof(tls),
-			    sizeof(tls));
-			if (error)
+			error = ktls_copyin_tls_enable(sopt, &tls);
+			if (error != 0)
 				break;
 			error = ktls_enable_rx(so, &tls);
+			ktls_cleanup_tls_enable(&tls);
 			break;
 #endif
 		case TCP_MAXUNACKTIME:
@@ -2709,7 +2668,7 @@ tcp_disconnect(struct tcpcb *tp)
 	 * socket is still open.
 	 */
 	if (tp->t_state < TCPS_ESTABLISHED &&
-	    !(tp->t_state > TCPS_LISTEN && IS_FASTOPEN(tp->t_flags))) {
+	    !(tp->t_state > TCPS_LISTEN && (tp->t_flags & TF_FASTOPEN))) {
 		tp = tcp_close(tp);
 		KASSERT(tp != NULL,
 		    ("tcp_disconnect: tcp_close() returned NULL"));
@@ -2917,6 +2876,14 @@ db_print_tflags(u_int t_flags)
 		db_printf("%sTF_PREVVALID", comma ? ", " : "");
 		comma = 1;
 	}
+	if (t_flags & TF_WAKESOR) {
+		db_printf("%sTF_WAKESOR", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_GPUTINPROG) {
+		db_printf("%sTF_GPUTINPROG", comma ? ", " : "");
+		comma = 1;
+	}
 	if (t_flags & TF_MORETOCOME) {
 		db_printf("%sTF_MORETOCOME", comma ? ", " : "");
 		comma = 1;
@@ -2937,16 +2904,8 @@ db_print_tflags(u_int t_flags)
 		db_printf("%sTF_FASTRECOVERY", comma ? ", " : "");
 		comma = 1;
 	}
-	if (t_flags & TF_CONGRECOVERY) {
-		db_printf("%sTF_CONGRECOVERY", comma ? ", " : "");
-		comma = 1;
-	}
 	if (t_flags & TF_WASFRECOVERY) {
 		db_printf("%sTF_WASFRECOVERY", comma ? ", " : "");
-		comma = 1;
-	}
-	if (t_flags & TF_WASCRECOVERY) {
-		db_printf("%sTF_WASCRECOVERY", comma ? ", " : "");
 		comma = 1;
 	}
 	if (t_flags & TF_SIGNATURE) {
@@ -2959,6 +2918,30 @@ db_print_tflags(u_int t_flags)
 	}
 	if (t_flags & TF_TSO) {
 		db_printf("%sTF_TSO", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_TOE) {
+		db_printf("%sTF_TOE", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_CLOSED) {
+		db_printf("%sTF_CLOSED", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_SENTSYN) {
+		db_printf("%sTF_SENTSYN", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_LRD) {
+		db_printf("%sTF_LRD", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_CONGRECOVERY) {
+		db_printf("%sTF_CONGRECOVERY", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags & TF_WASCRECOVERY) {
+		db_printf("%sTF_WASCRECOVERY", comma ? ", " : "");
 		comma = 1;
 	}
 	if (t_flags & TF_FASTOPEN) {
@@ -3009,8 +2992,60 @@ db_print_tflags2(u_int t_flags2)
 		db_printf("%sTF2_ACE_PERMIT", comma ? ", " : "");
 		comma = 1;
 	}
+	if (t_flags2 & TF2_HPTS_CPU_SET) {
+		db_printf("%sTF2_HPTS_CPU_SET", comma ? ", " : "");
+		comma = 1;
+	}
 	if (t_flags2 & TF2_FBYTES_COMPLETE) {
 		db_printf("%sTF2_FBYTES_COMPLETE", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_ECN_USE_ECT1) {
+		db_printf("%sTF2_ECN_USE_ECT1", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_TCP_ACCOUNTING) {
+		db_printf("%sTF2_TCP_ACCOUNTING", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_HPTS_CALLS) {
+		db_printf("%sTF2_HPTS_CALLS", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_MBUF_L_ACKS) {
+		db_printf("%sTF2_MBUF_L_ACKS", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_MBUF_ACKCMP) {
+		db_printf("%sTF2_MBUF_ACKCMP", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_SUPPORTS_MBUFQ) {
+		db_printf("%sTF2_SUPPORTS_MBUFQ", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_MBUF_QUEUE_READY) {
+		db_printf("%sTF2_MBUF_QUEUE_READY", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_DONT_SACK_QUEUE) {
+		db_printf("%sTF2_DONT_SACK_QUEUE", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_CANNOT_DO_ECN) {
+		db_printf("%sTF2_CANNOT_DO_ECN", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_PROC_SACK_PROHIBIT) {
+		db_printf("%sTF2_PROC_SACK_PROHIBIT", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_IPSEC_TSO) {
+		db_printf("%sTF2_IPSEC_TSO", comma ? ", " : "");
+		comma = 1;
+	}
+	if (t_flags2 & TF2_NO_ISS_CHECK) {
+		db_printf("%sTF2_NO_ISS_CHECK", comma ? ", " : "");
 		comma = 1;
 	}
 }

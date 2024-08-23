@@ -1,5 +1,22 @@
-
-# sys sources
+# Implement symbols common to libc and libsys.
+#
+# When dynamically linked, the libc symbols are filtered by the actual
+# implementations in libsys.  When statically linked, both libc and
+# libsys contain full implementations to preserve the API of libc.a.
+#
+# The following variable are programmer-defined:
+#
+# MDASM		Override the default syscall implementation in MIASM
+#		(from syscall.mk below).  Each entry is a source file
+#		name (e.g., vfork.S).
+#		Generally defined in <arch>/Makefile.sys.
+# NOASM		Don't generate system call stubs.  Each entry is an
+#		object file name (e.g., yeild.o).  Don't add more of these.
+# PSEUDO	Generate _<sys> and __sys_<sys> symbols, but not <sys>.
+#		Each entry is a bare syscall name (e.g., "clock_gettime").
+# INTERPOSED	Like PSEUDO, but <sys>.c is added to SRCS.
+#		Used for syscalls intercepted by the threading library.
+#
 .PATH: ${LIBSYS_SRCTOP}/${LIBC_ARCH} ${LIBSYS_SRCTOP}
 
 # Include the generated makefile containing the *complete* list
@@ -7,56 +24,39 @@
 .include "${SRCTOP}/sys/sys/syscall.mk"
 
 # Include machine dependent definitions.
-#
-# MDASM names override the default syscall names in MIASM.
-# NOASM will prevent the default syscall code from being generated.
-# PSEUDO generates _<sys>() and __sys_<sys>() symbols, but not <sys>().
-#
-# While historically machine dependent, all architectures have the following
-# declarations in common:
-#
-NOASM=	exit.o \
-	getlogin.o \
-	yield.o
-PSEUDO=	_exit.o \
-	_getlogin.o
 .include "${LIBSYS_SRCTOP}/${LIBC_ARCH}/Makefile.sys"
 .if ${LIBC_ARCH} == "i386" || ${LIBC_ARCH} == "amd64"
 .include "${LIBSYS_SRCTOP}/x86/Makefile.sys"
 .endif
 
 SRCS+= clock_gettime.c gettimeofday.c __vdso_gettimeofday.c
-NOASM+=  clock_gettime.o gettimeofday.o
-PSEUDO+= _clock_gettime.o _gettimeofday.o
 
 # Sources common to both syscall interfaces:
 SRCS+=	\
 	__error.c \
 	__getosreldate.c \
-	_once_stub.c \
 	getpagesize.c \
 	getpagesizes.c \
-	interposing_table.c
+	libsys_sigwait.c
 
-SRCS+= getdents.c lstat.c mknod.c stat.c
+.if ${LIB} == "c"
+# Trapping stubs in dynamic libc to be filtered by libsys.
+SOBJS+=	libc_stubs.pico
 
-SRCS+=	creat.c
-SRCS+=	lockf.c sleep.c usleep.c wait.c wait3.c waitpid.c waitid.c
-SRCS+=	recv.c recvmmsg.c send.c sendmmsg.c
+# Link the full implementation of ELF auxargs for static libc.
+STATICOBJS+=	auxv.o
 
-NOASM+=  sched_getcpu.o
-PSEUDO+= _sched_getcpu.o
+STATICOBJS+=	interposing_table.o
+.endif
 
-SRCS+= auxv.c
+NOASM=	yield.o
 
-SRCS+= brk.c
-SRCS+= closefrom.c
-SRCS+= pipe.c
-SRCS+= shm_open.c
-SRCS+= vadvise.c
-SRCS+= POSIX2x_Fork.c
-
-SRCS+=	compat-stub.c
+PSEUDO= \
+	clock_gettime \
+	exit \
+	getlogin \
+	gettimeofday \
+	sched_getcpu
 
 INTERPOSED = \
 	accept \
@@ -99,26 +99,24 @@ INTERPOSED = \
 	write \
 	writev
 
-SRCS+=	${INTERPOSED:S/$/.c/}
-NOASM+=	${INTERPOSED:S/$/.o/}
-PSEUDO+=	${INTERPOSED:C/^.*$/_&.o/}
+PSEUDO+=	${INTERPOSED}
 
 # Add machine dependent asm sources:
 SRCS+=${MDASM}
 
 # Look though the complete list of syscalls (MIASM) for names that are
-# not defined with machine dependent implementations (MDASM) and are
-# not declared for no generation of default code (NOASM).  Add each
-# syscall that satisfies these conditions to the ASM list.
+# not defined with machine dependent implementations (MDASM), not declared
+# without a trival <sys> symbol (PSEUDO).  Add each syscall that satisfies
+# these conditions to the ASM list.
 .for _asm in ${MIASM}
-.if !${MDASM:R:M${_asm:R}} && !${NOASM:R:M${_asm:R}}
+.if !${MDASM:R:M${_asm:R}} && !${NOASM:R:M${_asm:R}} && !${PSEUDO:M${_asm:R}}
 ASM+=$(_asm)
 .endif
 .endfor
 
 SASM=	${ASM:S/.o/.S/}
 
-SPSEUDO= ${PSEUDO:S/.o/.S/}
+SPSEUDO= ${PSEUDO:C/^.*$/_&.S/}
 
 SRCS+=	${SASM} ${SPSEUDO}
 
@@ -138,7 +136,7 @@ NOTE_GNU_STACK='\t.section .note.GNU-stack,"",%%progbits\n'
 NOTE_GNU_STACK=''
 .endif
 .if ${MACHINE_CPUARCH} == "aarch64"
-FEATURE_NOTE='\#include <sys/elf_common.h>\nGNU_PROPERTY_AARCH64_FEATURE_1_NOTE(GNU_PROPERTY_AARCH64_FEATURE_1_VAL)'
+FEATURE_NOTE='\#include <sys/elf_common.h>\nGNU_PROPERTY_AARCH64_FEATURE_1_NOTE(GNU_PROPERTY_AARCH64_FEATURE_1_VAL)\n'
 .else
 FEATURE_NOTE=''
 .endif
@@ -489,6 +487,7 @@ MLINKS+=read.2 pread.2 \
 	read.2 readv.2
 MLINKS+=readlink.2 readlinkat.2
 MLINKS+=recv.2 recvfrom.2 \
+	recv.2 recvmmsg.2 \
 	recv.2 recvmsg.2
 MLINKS+=rename.2 renameat.2
 MLINKS+=rtprio.2 rtprio_thread.2
@@ -501,7 +500,8 @@ MLINKS+=select.2 FD_CLR.3 \
 	select.2 FD_ISSET.3 \
 	select.2 FD_SET.3 \
 	select.2 FD_ZERO.3
-MLINKS+=send.2 sendmsg.2 \
+MLINKS+=send.2 sendmmsg.2 \
+	send.2 sendmsg.2 \
 	send.2 sendto.2
 MLINKS+=setpgid.2 setpgrp.2
 MLINKS+=setresuid.2 getresgid.2 \

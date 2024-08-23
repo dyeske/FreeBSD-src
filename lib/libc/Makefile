@@ -1,4 +1,3 @@
-
 PACKAGE=	clibs
 SHLIBDIR?= /lib
 
@@ -18,6 +17,8 @@ LIBC_ARCH=${M}
 .else
 LIBC_ARCH=${MACHINE_CPUARCH}
 .endif
+
+CFLAGS+=-D_FORTIFY_SOURCE_read=_read
 
 # All library objects contain FreeBSD revision strings by default; they may be
 # excluded as a space-saving measure.  To produce a library that does
@@ -62,6 +63,12 @@ CFLAGS+= -ftls-model=initial-exec
 #
 LDFLAGS+= -nodefaultlibs
 LIBADD+=	compiler_rt
+LIBADD+=	sys
+.if defined(COMPAT_libcompat)
+# XXX: work around gcc -m32 + bfd ld path issue for DT_NEEDED symbols.
+# https://sourceware.org/bugzilla/show_bug.cgi?id=31395
+LDFLAGS+=	-Wl,--rpath=/usr/lib${COMPAT_libcompat}
+.endif
 
 LDFLAGS+=-Wl,--auxiliary,libsys.so.7
 
@@ -116,8 +123,7 @@ NOASM=
 .include "${LIBC_SRCTOP}/stdlib/Makefile.inc"
 .include "${LIBC_SRCTOP}/stdtime/Makefile.inc"
 .include "${LIBC_SRCTOP}/string/Makefile.inc"
-SHARED_CFLAGS+=	-D'_SYSCALL_BODY(name)='
-.include "${LIBSYS_SRCTOP}/Makefile.sys"
+.include "${LIBC_SRCTOP}/sys/Makefile.inc"
 .include "${LIBC_SRCTOP}/secure/Makefile.inc"
 .include "${LIBC_SRCTOP}/rpc/Makefile.inc"
 .include "${LIBC_SRCTOP}/uuid/Makefile.inc"

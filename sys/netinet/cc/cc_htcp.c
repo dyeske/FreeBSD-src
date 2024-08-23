@@ -136,10 +136,10 @@
 	(((diff) / hz) * (((diff) << HTCP_ALPHA_INC_SHIFT) / (4 * hz))) \
 ) >> HTCP_ALPHA_INC_SHIFT)
 
-static void	htcp_ack_received(struct cc_var *ccv, uint16_t type);
+static void	htcp_ack_received(struct cc_var *ccv, ccsignal_t type);
 static void	htcp_cb_destroy(struct cc_var *ccv);
 static int	htcp_cb_init(struct cc_var *ccv, void *ptr);
-static void	htcp_cong_signal(struct cc_var *ccv, uint32_t type);
+static void	htcp_cong_signal(struct cc_var *ccv, ccsignal_t type);
 static int	htcp_mod_init(void);
 static void	htcp_post_recovery(struct cc_var *ccv);
 static void	htcp_recalc_alpha(struct cc_var *ccv);
@@ -190,7 +190,7 @@ struct cc_algo htcp_cc_algo = {
 };
 
 static void
-htcp_ack_received(struct cc_var *ccv, uint16_t type)
+htcp_ack_received(struct cc_var *ccv, ccsignal_t type)
 {
 	struct htcp *htcp_data;
 
@@ -229,9 +229,9 @@ htcp_ack_received(struct cc_var *ccv, uint16_t type)
 				 * per RTT.
 				 */
 				CCV(ccv, snd_cwnd) += (((htcp_data->alpha <<
-				    HTCP_SHIFT) / (CCV(ccv, snd_cwnd) /
-				    CCV(ccv, t_maxseg))) * CCV(ccv, t_maxseg))
-				    >> HTCP_SHIFT;
+				    HTCP_SHIFT) / (max(1,
+				    CCV(ccv, snd_cwnd) / CCV(ccv, t_maxseg)))) *
+				    CCV(ccv, t_maxseg))  >> HTCP_SHIFT;
 		}
 	}
 }
@@ -253,7 +253,7 @@ htcp_cb_init(struct cc_var *ccv, void *ptr)
 {
 	struct htcp *htcp_data;
 
-	INP_WLOCK_ASSERT(tptoinpcb(ccv->ccvc.tcp));
+	INP_WLOCK_ASSERT(tptoinpcb(ccv->tp));
 	if (ptr == NULL) {
 		htcp_data = malloc(sizeof(struct htcp), M_CC_MEM, M_NOWAIT);
 		if (htcp_data == NULL)
@@ -278,13 +278,13 @@ htcp_cb_init(struct cc_var *ccv, void *ptr)
  * Perform any necessary tasks before we enter congestion recovery.
  */
 static void
-htcp_cong_signal(struct cc_var *ccv, uint32_t type)
+htcp_cong_signal(struct cc_var *ccv, ccsignal_t type)
 {
 	struct htcp *htcp_data;
 	uint32_t mss, pipe;
 
 	htcp_data = ccv->cc_data;
-	mss = tcp_fixed_maxseg(ccv->ccvc.tcp);
+	mss = tcp_fixed_maxseg(ccv->tp);
 
 	switch (type) {
 	case CC_NDUPACK:
@@ -325,9 +325,9 @@ htcp_cong_signal(struct cc_var *ccv, uint32_t type)
 	case CC_RTO:
 		if (CCV(ccv, t_rxtshift) == 1) {
 			if (V_tcp_do_newsack) {
-				pipe = tcp_compute_pipe(ccv->ccvc.tcp);
+				pipe = tcp_compute_pipe(ccv->tp);
 			} else {
-				pipe = CCV(ccv, snd_nxt) -
+				pipe = CCV(ccv, snd_max) -
 					CCV(ccv, snd_fack) +
 					CCV(ccv, sackhint.sack_bytes_rexmit);
 			}
@@ -344,6 +344,8 @@ htcp_cong_signal(struct cc_var *ccv, uint32_t type)
 		 */
 		if (CCV(ccv, t_rxtshift) >= 2)
 			htcp_data->t_last_cong = ticks;
+		break;
+	default:
 		break;
 	}
 }
@@ -381,7 +383,7 @@ htcp_post_recovery(struct cc_var *ccv)
 		 * XXXLAS: Find a way to do this without needing curack
 		 */
 		if (V_tcp_do_newsack)
-			pipe = tcp_compute_pipe(ccv->ccvc.tcp);
+			pipe = tcp_compute_pipe(ccv->tp);
 		else
 			pipe = CCV(ccv, snd_max) - ccv->curack;
 
@@ -449,7 +451,7 @@ htcp_recalc_alpha(struct cc_var *ccv)
 			 */
 			if (V_htcp_rtt_scaling)
 				alpha = max(1, (min(max(HTCP_MINROWE,
-				    (tcp_get_srtt(ccv->ccvc.tcp, TCP_TMR_GRANULARITY_TICKS) << HTCP_SHIFT) /
+				    (tcp_get_srtt(ccv->tp, TCP_TMR_GRANULARITY_TICKS) << HTCP_SHIFT) /
 				    htcp_rtt_ref), HTCP_MAXROWE) * alpha)
 				    >> HTCP_SHIFT);
 
@@ -500,18 +502,18 @@ htcp_record_rtt(struct cc_var *ccv)
 	 * or minrtt is currently equal to its initialised value. Ignore SRTT
 	 * until a min number of samples have been taken.
 	 */
-	if ((tcp_get_srtt(ccv->ccvc.tcp, TCP_TMR_GRANULARITY_TICKS) < htcp_data->minrtt ||
+	if ((tcp_get_srtt(ccv->tp, TCP_TMR_GRANULARITY_TICKS) < htcp_data->minrtt ||
 	    htcp_data->minrtt == TCPTV_SRTTBASE) &&
 	    (CCV(ccv, t_rttupdated) >= HTCP_MIN_RTT_SAMPLES))
-		htcp_data->minrtt = tcp_get_srtt(ccv->ccvc.tcp, TCP_TMR_GRANULARITY_TICKS);
+		htcp_data->minrtt = tcp_get_srtt(ccv->tp, TCP_TMR_GRANULARITY_TICKS);
 
 	/*
 	 * Record the current SRTT as our maxrtt if it's the largest we've
 	 * seen. Ignore SRTT until a min number of samples have been taken.
 	 */
-	if (tcp_get_srtt(ccv->ccvc.tcp, TCP_TMR_GRANULARITY_TICKS) > htcp_data->maxrtt
+	if (tcp_get_srtt(ccv->tp, TCP_TMR_GRANULARITY_TICKS) > htcp_data->maxrtt
 	    && CCV(ccv, t_rttupdated) >= HTCP_MIN_RTT_SAMPLES)
-		htcp_data->maxrtt = tcp_get_srtt(ccv->ccvc.tcp, TCP_TMR_GRANULARITY_TICKS);
+		htcp_data->maxrtt = tcp_get_srtt(ccv->tp, TCP_TMR_GRANULARITY_TICKS);
 }
 
 /*

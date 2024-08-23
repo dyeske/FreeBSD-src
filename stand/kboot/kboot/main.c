@@ -23,7 +23,6 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <stand.h>
 #include <sys/param.h>
 #include <sys/boot.h>
@@ -233,7 +232,7 @@ caddr_t ptov(uintptr_t pa)
 	 * the raw system call we have to do that ourselves.
 	 */
 	va = host_mmap(0, PAGE, HOST_PROT_READ, HOST_MAP_SHARED, smbios_fd, pa2);
-	if ((intptr_t)va < 0 && (intptr_t)va >= -511)
+	if (is_linux_error((long)va))
 		panic("smbios mmap offset %#jx failed", (uintmax_t)pa2);
 	m = &map[nmap++];
 	m->pa = pa2;
@@ -343,25 +342,32 @@ main(int argc, const char **argv)
 	heapbase = host_getmem(heapsize);
 	setheap(heapbase, heapbase + heapsize);
 
+	/*
+	 * Set up console so we get error messages.
+	 */
+	cons_probe();
+
+	/*
+	 * Find acpi and smbios, if they exists. This allows command line and
+	 * later scripts to override if necessary.
+	 */
+	find_acpi();
+	find_smbios();
+
 	/* Parse the command line args -- ignoring for now the console selection */
 	parse_args(argc, argv);
 
-	parse_file("host:/kboot.conf");
-
-	/*
-	 * Set up console.
-	 */
-	cons_probe();
+	hostfs_root = getenv("hostfs_root");
+	if (hostfs_root == NULL)
+		hostfs_root = "/";
 
 	/* Initialize all the devices */
 	devinit();
 
+	/* Figure out where we're booting from */
 	bootdev = getenv("bootdev");
 	if (bootdev == NULL)
 		bootdev = hostdisk_gen_probe();
-	hostfs_root = getenv("hostfs_root");
-	if (hostfs_root == NULL)
-		hostfs_root = "/";
 #if defined(LOADER_ZFS_SUPPORT)
 	if (bootdev == NULL || strcmp(bootdev, "zfs:") == 0) {
 		/*
@@ -394,13 +400,6 @@ main(int argc, const char **argv)
 
 	memory_limits();
 	enumerate_memory_arch();
-
-	/*
-	 * Find acpi, if it exists
-	 */
-	find_acpi();
-
-	find_smbios();
 
 	interact();			/* doesn't return */
 

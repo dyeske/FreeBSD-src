@@ -83,8 +83,7 @@
 #define SPI_SIZE	4
 
 VNET_DEFINE(int, esp_enable) = 1;
-VNET_DEFINE_STATIC(int, esp_ctr_compatibility) = 1;
-#define V_esp_ctr_compatibility VNET(esp_ctr_compatibility)
+VNET_DEFINE(int, esp_ctr_compatibility) = 1;
 VNET_PCPUSTAT_DEFINE(struct espstat, espstat);
 VNET_PCPUSTAT_SYSINIT(espstat);
 
@@ -508,6 +507,13 @@ esp_input_cb(struct cryptop *crp)
 	xd = crp->crp_opaque;
 	CURVNET_SET(xd->vnet);
 	sav = xd->sav;
+	if (sav->state >= SADB_SASTATE_DEAD) {
+		/* saidx is freed */
+		DPRINTF(("%s: dead SA %p spi %#x\n", __func__, sav, sav->spi));
+		ESPSTAT_INC(esps_notdb);
+		error = ESRCH;
+		goto bad;
+	}
 	skip = xd->skip;
 	protoff = xd->protoff;
 	cryptoid = xd->cryptoid;

@@ -1103,7 +1103,8 @@ static int
 hn_ifmedia_upd(if_t ifp __unused)
 {
 
-	return EOPNOTSUPP;
+	/* Ignore since autoselect is the only defined and valid media */
+	return (0);
 }
 
 static void
@@ -2523,7 +2524,7 @@ hn_detach(device_t dev)
 				hn_stop(sc, true);
 			/*
 			 * NOTE:
-			 * hn_stop() only suspends data, so managment
+			 * hn_stop() only suspends data, so management
 			 * stuffs have to be suspended manually here.
 			 */
 			hn_suspend_mgmt(sc);
@@ -5130,7 +5131,7 @@ hn_destroy_rx_data(struct hn_softc *sc)
 
 	if (sc->hn_rxbuf != NULL) {
 		if ((sc->hn_flags & HN_FLAG_RXBUF_REF) == 0)
-			contigfree(sc->hn_rxbuf, HN_RXBUF_SIZE, M_DEVBUF);
+			free(sc->hn_rxbuf, M_DEVBUF);
 		else
 			device_printf(sc->hn_dev, "RXBUF is referenced\n");
 		sc->hn_rxbuf = NULL;
@@ -5145,8 +5146,7 @@ hn_destroy_rx_data(struct hn_softc *sc)
 		if (rxr->hn_br == NULL)
 			continue;
 		if ((rxr->hn_rx_flags & HN_RX_FLAG_BR_REF) == 0) {
-			contigfree(rxr->hn_br, HN_TXBR_SIZE + HN_RXBR_SIZE,
-			    M_DEVBUF);
+			free(rxr->hn_br, M_DEVBUF);
 		} else {
 			device_printf(sc->hn_dev,
 			    "%dth channel bufring is referenced", i);
@@ -5648,7 +5648,7 @@ hn_destroy_tx_data(struct hn_softc *sc)
 
 	if (sc->hn_chim != NULL) {
 		if ((sc->hn_flags & HN_FLAG_CHIM_REF) == 0) {
-			contigfree(sc->hn_chim, HN_CHIM_SIZE, M_DEVBUF);
+			free(sc->hn_chim, M_DEVBUF);
 		} else {
 			device_printf(sc->hn_dev,
 			    "chimney sending buffer is referenced");

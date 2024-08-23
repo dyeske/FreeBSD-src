@@ -42,7 +42,6 @@ ASSYM(BP_MODULEP, offsetof(struct arm64_bootparams, modulep));
 ASSYM(BP_KERN_STACK, offsetof(struct arm64_bootparams, kern_stack));
 ASSYM(BP_KERN_TTBR0, offsetof(struct arm64_bootparams, kern_ttbr0));
 ASSYM(BP_BOOT_EL, offsetof(struct arm64_bootparams, boot_el));
-ASSYM(BP_HCR_EL2, offsetof(struct arm64_bootparams, hcr_el2));
 
 ASSYM(PCPU_SIZE, sizeof(struct pcpu));
 ASSYM(PC_CURPCB, offsetof(struct pcpu, pc_curpcb));
@@ -71,6 +70,7 @@ ASSYM(TD_MD_CANARY, offsetof(struct thread, td_md.md_canary));
 
 ASSYM(TF_SIZE, sizeof(struct trapframe));
 ASSYM(TF_SP, offsetof(struct trapframe, tf_sp));
+ASSYM(TF_LR, offsetof(struct trapframe, tf_lr));
 ASSYM(TF_ELR, offsetof(struct trapframe, tf_elr));
 ASSYM(TF_SPSR, offsetof(struct trapframe, tf_spsr));
 ASSYM(TF_ESR, offsetof(struct trapframe, tf_esr));

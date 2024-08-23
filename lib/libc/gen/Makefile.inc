@@ -1,4 +1,3 @@
-
 # machine-independent gen sources
 .PATH: ${LIBC_SRCTOP}/${LIBC_ARCH}/gen ${LIBC_SRCTOP}/gen ${SRCTOP}/etc
 
@@ -9,6 +8,7 @@ CONFSPACKAGE=   runtime
 SRCS+= \
 	__pthread_mutex_init_calloc_cb_stub.c \
 	__xuname.c \
+	_once_stub.c \
 	_pthread_stubs.c \
 	_rand48.c \
 	_spinlock_stub.c \
@@ -46,7 +46,6 @@ SRCS+= \
 	erand48.c \
 	err.c \
 	errlst.c \
-	errno.c \
 	eventfd.c \
 	exec.c \
 	exect.c \
@@ -137,6 +136,7 @@ SRCS+= \
 	siglist.c \
 	signal.c \
 	sigsetops.c \
+	sleep.c \
 	srand48.c \
 	statvfs.c \
 	stringlist.c \
@@ -160,6 +160,7 @@ SRCS+= \
 	ulimit.c \
 	uname.c \
 	unvis-compat.c \
+	usleep.c \
 	utime.c \
 	utxdb.c \
 	valloc.c \
@@ -305,9 +306,7 @@ MAN+=	alarm.3 \
 	times.3 \
 	timespec_get.3 \
 	timespec_getres.3 \
-	timezone.3 \
 	ttyname.3 \
-	tzset.3 \
 	ualarm.3 \
 	ucontext.3 \
 	ulimit.3 \

@@ -99,7 +99,6 @@ FBSD_1.0 {
 	vwarnx;
 	sys_errlist;
 	sys_nerr;
-	errno;
 	exect;
 	execl;
 	execle;
@@ -262,7 +261,6 @@ FBSD_1.0 {
 	setlogmask;
 	ttyname_r;
 	ttyname;
-	timezone;
 	times;
 	time;
 	telldir;
@@ -359,6 +357,7 @@ FBSD_1.2 {
 };
 
 FBSD_1.3 {
+	cap_sandboxed;
 	clock_getcpuclockid;
 	dirfd;
 	dup3;
@@ -448,7 +447,6 @@ FBSD_1.7 {
 	 scandirat;
 	 sched_getaffinity;
 	 sched_setaffinity;
-	 sched_getcpu;
 	 versionsort;
 	 __cpuset_alloc;
 	 __cpuset_free;

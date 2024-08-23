@@ -52,6 +52,17 @@ struct funcdesc {
 };
 #endif
 
+bool
+arch_digest_dynamic(struct Struct_Obj_Entry *obj, const Elf_Dyn *dynp)
+{
+	if (dynp->d_tag == DT_PPC64_GLINK) {
+		obj->glink = (Elf_Addr)(obj->relocbase + dynp->d_un.d_ptr);
+		return (true);
+	}
+
+	return (false);
+}
+
 /*
  * Process the R_PPC_COPY relocations
  */
@@ -699,7 +710,7 @@ powerpc64_abi_variant_hook(Elf_Auxinfo** aux_info)
 }
 
 void
-ifunc_init(Elf_Auxinfo aux_info[__min_size(AT_COUNT)] __unused)
+ifunc_init(Elf_Auxinfo *aux_info[__min_size(AT_COUNT)] __unused)
 {
 
 }

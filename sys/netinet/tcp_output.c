@@ -201,9 +201,7 @@ tcp_default_output(struct tcpcb *tp)
 	struct tcphdr *th;
 	u_char opt[TCP_MAXOLEN];
 	unsigned ipoptlen, optlen, hdrlen, ulen;
-#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	unsigned ipsec_optlen = 0;
-#endif
 	int idle, sendalot, curticks;
 	int sack_rxmit, sack_bytes_rxmt;
 	struct sackhole *p;
@@ -239,10 +237,10 @@ tcp_default_output(struct tcpcb *tp)
 	 * only allow the initial SYN or SYN|ACK and those sent
 	 * by the retransmit timer.
 	 */
-	if (IS_FASTOPEN(tp->t_flags) &&
+	if ((tp->t_flags & TF_FASTOPEN) &&
 	    ((tp->t_state == TCPS_SYN_SENT) ||
-	     (tp->t_state == TCPS_SYN_RECEIVED)) &&
-	    SEQ_GT(tp->snd_max, tp->snd_una) && /* initial SYN or SYN|ACK sent */
+	    (tp->t_state == TCPS_SYN_RECEIVED)) &&
+	    SEQ_GT(tp->snd_max, tp->snd_una) && /* SYN or SYN|ACK sent */
 	    (tp->snd_nxt != tp->snd_una))       /* not a retransmit */
 		return (0);
 
@@ -436,7 +434,7 @@ after_sack_rexmit:
 		 * When sending additional segments following a TFO SYN|ACK,
 		 * do not include the SYN bit.
 		 */
-		if (IS_FASTOPEN(tp->t_flags) &&
+		if ((tp->t_flags & TF_FASTOPEN) &&
 		    (tp->t_state == TCPS_SYN_RECEIVED))
 			flags &= ~TH_SYN;
 		off--, len++;
@@ -464,12 +462,18 @@ after_sack_rexmit:
 	 *
 	 *  - When the socket is in the CLOSED state (RST is being sent)
 	 */
-	if (IS_FASTOPEN(tp->t_flags) &&
+	if ((tp->t_flags & TF_FASTOPEN) &&
 	    (((flags & TH_SYN) && (tp->t_rxtshift > 0)) ||
 	     ((tp->t_state == TCPS_SYN_SENT) &&
 	      (tp->t_tfo_client_cookie_len == 0)) ||
 	     (flags & TH_RST)))
 		len = 0;
+
+	/* Without fast-open there should never be data sent on a SYN. */
+	if ((flags & TH_SYN) && !(tp->t_flags & TF_FASTOPEN)) {
+		len = 0;
+	}
+
 	if (len <= 0) {
 		/*
 		 * If FIN has been sent but not acked,
@@ -547,15 +551,15 @@ after_sack_rexmit:
 				offsetof(struct ipoption, ipopt_list);
 	else
 		ipoptlen = 0;
-#if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	ipoptlen += ipsec_optlen;
-#endif
 
 	if ((tp->t_flags & TF_TSO) && V_tcp_do_tso && len > tp->t_maxseg &&
 	    (tp->t_port == 0) &&
 	    ((tp->t_flags & TF_SIGNATURE) == 0) &&
-	    tp->rcv_numsacks == 0 && sack_rxmit == 0 &&
-	    ipoptlen == 0 && !(flags & TH_SYN))
+	    tp->rcv_numsacks == 0 && ((sack_rxmit == 0) || V_tcp_sack_tso) &&
+	    (ipoptlen == 0 || (ipoptlen == ipsec_optlen &&
+	    (tp->t_flags2 & TF2_IPSEC_TSO) != 0)) &&
+	    !(flags & TH_SYN))
 		tso = 1;
 
 	if (SEQ_LT((sack_rxmit ? p->rxmit : tp->snd_nxt) + len,
@@ -801,7 +805,7 @@ send:
 			 * have caused the original SYN or SYN|ACK to have
 			 * been dropped by a middlebox.
 			 */
-			if (IS_FASTOPEN(tp->t_flags) &&
+			if ((tp->t_flags & TF_FASTOPEN) &&
 			    (tp->t_rxtshift == 0)) {
 				if (tp->t_state == TCPS_SYN_RECEIVED) {
 					to.to_tfo_len = TCP_FASTOPEN_COOKIE_LEN;
@@ -875,7 +879,7 @@ send:
 		 * If we wanted a TFO option to be added, but it was unable
 		 * to fit, ensure no data is sent.
 		 */
-		if (IS_FASTOPEN(tp->t_flags) && wanted_cookie &&
+		if ((tp->t_flags & TF_FASTOPEN) && wanted_cookie &&
 		    !(to.to_flags & TOF_FASTOPEN))
 			len = 0;
 	}
@@ -911,7 +915,7 @@ send:
 			 * overflowing or exceeding the maximum length
 			 * allowed by the network interface:
 			 */
-			KASSERT(ipoptlen == 0,
+			KASSERT(ipoptlen ==  ipsec_optlen,
 			    ("%s: TSO can't do IP options", __func__));
 
 			/*
@@ -920,8 +924,8 @@ send:
 			 */
 			if (if_hw_tsomax != 0) {
 				/* compute maximum TSO length */
-				max_len = (if_hw_tsomax - hdrlen -
-				    max_linkhdr);
+				max_len = if_hw_tsomax - hdrlen -
+				    ipsec_optlen - max_linkhdr;
 				if (max_len <= 0) {
 					len = 0;
 				} else if (len > max_len) {
@@ -935,7 +939,7 @@ send:
 			 * fractional unless the send sockbuf can be
 			 * emptied:
 			 */
-			max_len = (tp->t_maxseg - optlen);
+			max_len = tp->t_maxseg - optlen - ipsec_optlen;
 			if (((uint32_t)off + (uint32_t)len) <
 			    sbavail(&so->so_snd)) {
 				moff = len % max_len;
@@ -1031,6 +1035,9 @@ send:
 			TCPSTAT_ADD(tcps_sndrexmitbyte, len);
 			if (sack_rxmit) {
 				TCPSTAT_INC(tcps_sack_rexmits);
+				if (tso) {
+					TCPSTAT_INC(tcps_sack_rexmits_tso);
+				}
 				TCPSTAT_ADD(tcps_sack_rexmit_bytes, len);
 			}
 #ifdef STATS
@@ -1384,10 +1391,10 @@ send:
 	 * The TCP pseudo header checksum is always provided.
 	 */
 	if (tso) {
-		KASSERT(len > tp->t_maxseg - optlen,
+		KASSERT(len > tp->t_maxseg - optlen - ipsec_optlen,
 		    ("%s: len <= tso_segsz", __func__));
 		m->m_pkthdr.csum_flags |= CSUM_TSO;
-		m->m_pkthdr.tso_segsz = tp->t_maxseg - optlen;
+		m->m_pkthdr.tso_segsz = tp->t_maxseg - optlen - ipsec_optlen;
 	}
 
 	KASSERT(len + hdrlen == m_length(m, NULL),

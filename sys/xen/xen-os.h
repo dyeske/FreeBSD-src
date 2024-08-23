@@ -39,6 +39,8 @@
 #include <contrib/xen/xen.h>
 
 #ifndef __ASSEMBLY__
+#include <sys/rman.h>
+
 #include <xen/hvm.h>
 #include <contrib/xen/event_channel.h>
 
@@ -150,6 +152,16 @@ int xenmem_free(device_t dev, int res_id, struct resource *res);
 
 /* Debug/emergency function, prints directly to hypervisor console */
 void xc_printf(const char *, ...) __printflike(1, 2);
+
+/*
+ * Emergency print function, can be defined per-arch, otherwise defaults to
+ * HYPERVISOR_console_write.  Should not be called directly, use xc_printf
+ * instead.
+ */
+void xen_emergency_print(const char *str, size_t size);
+
+/* Arch-specific helper to init scratch mapping space. */
+int xen_arch_init_physmem(device_t dev, struct rman *mem);
 
 #ifndef xen_mb
 #define xen_mb() mb()

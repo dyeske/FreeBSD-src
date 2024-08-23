@@ -37,13 +37,13 @@
 #include <sys/proc.h>
 #include <sys/kernel.h>
 #include <sys/ktr.h>
+#include <sys/ktrace.h>
 #include <sys/condvar.h>
 #include <sys/sched.h>
 #include <sys/signalvar.h>
 #include <sys/sleepqueue.h>
 #include <sys/resourcevar.h>
 #ifdef KTRACE
-#include <sys/ktrace.h>
 #include <sys/uio.h>
 #include <sys/user.h>
 #endif
@@ -112,7 +112,7 @@ _cv_wait(struct cv *cvp, struct lock_object *lock)
 	char wmesg[WMESGLEN + 1];
 #endif
 	struct lock_class *class;
-	struct thread *td;
+	struct thread *td __ktrace_used;
 	uintptr_t lock_state;
 
 	td = curthread;
@@ -174,7 +174,7 @@ _cv_wait_unlock(struct cv *cvp, struct lock_object *lock)
 	char wmesg[WMESGLEN + 1];
 #endif
 	struct lock_class *class;
-	struct thread *td;
+	struct thread *td __ktrace_used;
 
 	td = curthread;
 	CV_ASSERT(cvp, lock, td);
@@ -232,7 +232,7 @@ _cv_wait_sig(struct cv *cvp, struct lock_object *lock)
 	char wmesg[WMESGLEN + 1];
 #endif
 	struct lock_class *class;
-	struct thread *td;
+	struct thread *td __ktrace_used;
 	uintptr_t lock_state;
 	int rval;
 
@@ -301,7 +301,7 @@ _cv_timedwait_sbt(struct cv *cvp, struct lock_object *lock, sbintime_t sbt,
 	char wmesg[WMESGLEN + 1];
 #endif
 	struct lock_class *class;
-	struct thread *td;
+	struct thread *td __ktrace_used;
 	int lock_state, rval;
 
 	td = curthread;
@@ -371,7 +371,7 @@ _cv_timedwait_sig_sbt(struct cv *cvp, struct lock_object *lock,
 	char wmesg[WMESGLEN + 1];
 #endif
 	struct lock_class *class;
-	struct thread *td;
+	struct thread *td __ktrace_used;
 	int lock_state, rval;
 
 	td = curthread;
@@ -427,16 +427,13 @@ _cv_timedwait_sig_sbt(struct cv *cvp, struct lock_object *lock,
 }
 
 /*
- * Signal a condition variable, wakes up one waiting thread.  Will also wakeup
- * the swapper if the process is not in memory, so that it can bring the
- * sleeping process in.  Note that this may also result in additional threads
- * being made runnable.  Should be called with the same mutex as was passed to
- * cv_wait held.
+ * Signal a condition variable, wakes up one waiting thread.  Note that this may
+ * also result in additional threads being made runnable.  Should be called with
+ * the same mutex as was passed to cv_wait held.
  */
 void
 cv_signal(struct cv *cvp)
 {
-
 	if (cvp->cv_waiters == 0)
 		return;
 	sleepq_lock(cvp);
@@ -450,8 +447,7 @@ cv_signal(struct cv *cvp)
 	} else {
 		if (cvp->cv_waiters < CV_WAITERS_BOUND)
 			cvp->cv_waiters--;
-		if (sleepq_signal(cvp, SLEEPQ_CONDVAR | SLEEPQ_DROP, 0, 0))
-			kick_proc0();
+		sleepq_signal(cvp, SLEEPQ_CONDVAR | SLEEPQ_DROP, 0, 0);
 	}
 }
 
@@ -462,23 +458,18 @@ cv_signal(struct cv *cvp)
 void
 cv_broadcastpri(struct cv *cvp, int pri)
 {
-	int wakeup_swapper;
-
 	if (cvp->cv_waiters == 0)
 		return;
 	/*
 	 * XXX sleepq_broadcast pri argument changed from -1 meaning
 	 * no pri to 0 meaning no pri.
 	 */
-	wakeup_swapper = 0;
 	if (pri == -1)
 		pri = 0;
 	sleepq_lock(cvp);
 	if (cvp->cv_waiters > 0) {
 		cvp->cv_waiters = 0;
-		wakeup_swapper = sleepq_broadcast(cvp, SLEEPQ_CONDVAR, pri, 0);
+		sleepq_broadcast(cvp, SLEEPQ_CONDVAR, pri, 0);
 	}
 	sleepq_release(cvp);
-	if (wakeup_swapper)
-		kick_proc0();
 }

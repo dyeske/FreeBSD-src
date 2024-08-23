@@ -1,4 +1,4 @@
-/*	$NetBSD: cond.c,v 1.359 2023/12/29 12:59:43 rillig Exp $	*/
+/*	$NetBSD: cond.c,v 1.366 2024/07/06 21:21:09 rillig Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990 The Regents of the University of California.
@@ -91,7 +91,7 @@
 #include "dir.h"
 
 /*	"@(#)cond.c	8.2 (Berkeley) 1/2/94"	*/
-MAKE_RCSID("$NetBSD: cond.c,v 1.359 2023/12/29 12:59:43 rillig Exp $");
+MAKE_RCSID("$NetBSD: cond.c,v 1.366 2024/07/06 21:21:09 rillig Exp $");
 
 /*
  * Conditional expressions conform to this grammar:
@@ -222,8 +222,8 @@ ParseWord(const char **pp, bool doEval)
 			break;
 		if (ch == '$') {
 			VarEvalMode emode = doEval
-			    ? VARE_UNDEFERR
-			    : VARE_PARSE_ONLY;
+			    ? VARE_EVAL_DEFINED
+			    : VARE_PARSE;
 			/*
 			 * TODO: make Var_Parse complain about undefined
 			 * variables.
@@ -394,11 +394,11 @@ CondParser_StringExpr(CondParser *par, const char *start,
 {
 	VarEvalMode emode;
 	const char *p;
-	bool atStart;
+	bool atStart;		/* true means an expression outside quotes */
 
-	emode = doEval && quoted ? VARE_WANTRES
-	    : doEval ? VARE_UNDEFERR
-	    : VARE_PARSE_ONLY;
+	emode = doEval && quoted ? VARE_EVAL
+	    : doEval ? VARE_EVAL_DEFINED
+	    : VARE_PARSE;
 
 	p = par->p;
 	atStart = p == start;
@@ -411,11 +411,6 @@ CondParser_StringExpr(CondParser *par, const char *start,
 	}
 	par->p = p;
 
-	/*
-	 * If the '$' started the string literal (which means no quotes), and
-	 * the expression is followed by a space, a comparison operator or
-	 * the end of the expression, we are done.
-	 */
 	if (atStart && is_separator(par->p[0]))
 		return false;
 
@@ -429,13 +424,12 @@ CondParser_StringExpr(CondParser *par, const char *start,
  * Parse a string from an expression or an optionally quoted string,
  * on the left-hand and right-hand sides of comparisons.
  *
- * Results:
- *	Returns the string without any enclosing quotes, or NULL on error.
- *	Sets out_quoted if the leaf was a quoted string literal.
+ * Return the string without any enclosing quotes, or NULL on error.
+ * Sets out_quoted if the leaf was a quoted string literal.
  */
-static void
+static FStr
 CondParser_Leaf(CondParser *par, bool doEval, bool unquotedOK,
-		  FStr *out_str, bool *out_quoted)
+		bool *out_quoted)
 {
 	Buffer buf;
 	FStr str;
@@ -497,7 +491,7 @@ return_buf:
 	buf.data = NULL;
 return_str:
 	Buf_Done(&buf);
-	*out_str = str;
+	return str;
 }
 
 /*
@@ -509,26 +503,12 @@ EvalTruthy(CondParser *par, const char *value, bool quoted)
 {
 	double num;
 
-	/* For .ifxxx "...", check for non-empty string. */
 	if (quoted)
 		return value[0] != '\0';
-
-	/* For .ifxxx <number>, compare against zero */
 	if (TryParseNumber(value, &num))
 		return num != 0.0;
-
-	/*
-	 * For .if ${...}, check for non-empty string.  This is different
-	 * from the evaluation function from that .if variant, which would
-	 * test whether a variable of the given name were defined.
-	 */
-	/*
-	 * XXX: Whitespace should count as empty, just as in
-	 * CondParser_FuncCallEmpty.
-	 */
 	if (par->plain)
 		return value[0] != '\0';
-
 	return par->evalBare(value) != par->negateEvalBare;
 }
 
@@ -621,7 +601,7 @@ CondParser_Comparison(CondParser *par, bool doEval)
 	ComparisonOp op;
 	bool lhsQuoted, rhsQuoted;
 
-	CondParser_Leaf(par, doEval, par->leftUnquotedOK, &lhs, &lhsQuoted);
+	lhs = CondParser_Leaf(par, doEval, par->leftUnquotedOK, &lhsQuoted);
 	if (lhs.str == NULL)
 		goto done_lhs;
 
@@ -641,7 +621,7 @@ CondParser_Comparison(CondParser *par, bool doEval)
 		goto done_lhs;
 	}
 
-	CondParser_Leaf(par, doEval, true, &rhs, &rhsQuoted);
+	rhs = CondParser_Leaf(par, doEval, true, &rhsQuoted);
 	t = rhs.str == NULL ? TOK_ERROR
 	    : !doEval ? TOK_FALSE
 	    : EvalCompare(par, lhs.str, lhsQuoted, op, rhs.str, rhsQuoted);
@@ -671,8 +651,7 @@ CondParser_FuncCallEmpty(CondParser *par, bool doEval, Token *out_token)
 		return false;
 
 	p--;			/* Make p[1] point to the '('. */
-	val = Var_Parse(&p, SCOPE_CMDLINE,
-	    doEval ? VARE_WANTRES : VARE_PARSE_ONLY);
+	val = Var_Parse(&p, SCOPE_CMDLINE, doEval ? VARE_EVAL : VARE_PARSE);
 	/* TODO: handle errors */
 
 	if (val.str == var_Error)
@@ -756,8 +735,10 @@ CondParser_ComparisonOrLeaf(CondParser *par, bool doEval)
 	arg = ParseWord(&p, doEval);
 	assert(arg[0] != '\0');
 
-	if (*p == '=' || *p == '!' || *p == '<' || *p == '>')
+	if (*p == '=' || *p == '!' || *p == '<' || *p == '>') {
+		free(arg);
 		return CondParser_Comparison(par, doEval);
+	}
 	par->p = p;
 
 	/*
@@ -799,7 +780,7 @@ CondParser_Token(CondParser *par, bool doEval)
 		par->p++;
 		if (par->p[0] == '|')
 			par->p++;
-		else if (opts.strict) {
+		else {
 			Parse_Error(PARSE_FATAL, "Unknown operator '|'");
 			par->printedError = true;
 			return TOK_ERROR;
@@ -810,7 +791,7 @@ CondParser_Token(CondParser *par, bool doEval)
 		par->p++;
 		if (par->p[0] == '&')
 			par->p++;
-		else if (opts.strict) {
+		else {
 			Parse_Error(PARSE_FATAL, "Unknown operator '&'");
 			par->printedError = true;
 			return TOK_ERROR;
@@ -867,12 +848,13 @@ CondParser_Term(CondParser *par, bool doEval)
 {
 	CondResult res;
 	Token t;
+	bool neg = false;
 
-	t = CondParser_Token(par, doEval);
-	if (t == TOK_TRUE)
-		return CR_TRUE;
-	if (t == TOK_FALSE)
-		return CR_FALSE;
+	while ((t = CondParser_Token(par, doEval)) == TOK_NOT)
+		neg = !neg;
+
+	if (t == TOK_TRUE || t == TOK_FALSE)
+		return neg == (t == TOK_FALSE) ? CR_TRUE : CR_FALSE;
 
 	if (t == TOK_LPAREN) {
 		res = CondParser_Or(par, doEval);
@@ -880,16 +862,7 @@ CondParser_Term(CondParser *par, bool doEval)
 			return CR_ERROR;
 		if (CondParser_Token(par, doEval) != TOK_RPAREN)
 			return CR_ERROR;
-		return res;
-	}
-
-	if (t == TOK_NOT) {
-		res = CondParser_Term(par, doEval);
-		if (res == CR_TRUE)
-			res = CR_FALSE;
-		else if (res == CR_FALSE)
-			res = CR_TRUE;
-		return res;
+		return neg == (res == CR_FALSE) ? CR_TRUE : CR_FALSE;
 	}
 
 	return CR_ERROR;
@@ -937,20 +910,6 @@ CondParser_Or(CondParser *par, bool doEval)
 	return res;
 }
 
-static CondResult
-CondParser_Eval(CondParser *par)
-{
-	CondResult res;
-
-	DEBUG1(COND, "CondParser_Eval: %s\n", par->p);
-
-	res = CondParser_Or(par, true);
-	if (res != CR_ERROR && CondParser_Token(par, false) != TOK_EOF)
-		return CR_ERROR;
-
-	return res;
-}
-
 /*
  * Evaluate the condition, including any side effects from the
  * expressions in the condition. The condition consists of &&, ||, !,
@@ -974,7 +933,10 @@ CondEvalExpression(const char *cond, bool plain,
 	par.curr = TOK_NONE;
 	par.printedError = false;
 
-	rval = CondParser_Eval(&par);
+	DEBUG1(COND, "CondParser_Eval: %s\n", par.p);
+	rval = CondParser_Or(&par, true);
+	if (par.curr != TOK_EOF)
+		rval = CR_ERROR;
 
 	if (rval == CR_ERROR && eprint && !par.printedError)
 		Parse_Error(PARSE_FATAL, "Malformed conditional (%s)", cond);

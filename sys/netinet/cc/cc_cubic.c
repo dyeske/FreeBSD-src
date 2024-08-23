@@ -73,10 +73,10 @@
 #include <netinet/cc/cc_cubic.h>
 #include <netinet/cc/cc_module.h>
 
-static void	cubic_ack_received(struct cc_var *ccv, uint16_t type);
+static void	cubic_ack_received(struct cc_var *ccv, ccsignal_t type);
 static void	cubic_cb_destroy(struct cc_var *ccv);
 static int	cubic_cb_init(struct cc_var *ccv, void *ptr);
-static void	cubic_cong_signal(struct cc_var *ccv, uint32_t type);
+static void	cubic_cong_signal(struct cc_var *ccv, ccsignal_t type);
 static void	cubic_conn_init(struct cc_var *ccv);
 static int	cubic_mod_init(void);
 static void	cubic_post_recovery(struct cc_var *ccv);
@@ -125,7 +125,7 @@ cubic_log_hystart_event(struct cc_var *ccv, struct cubic *cubicd, uint8_t mod, u
 
 	if (hystart_bblogs == 0)
 		return;
-	tp = ccv->ccvc.tcp;
+	tp = ccv->tp;
 	if (tcp_bblogging_on(tp)) {
 		union tcp_log_stackspecific log;
 		struct timeval tv;
@@ -233,7 +233,7 @@ cubic_does_slow_start(struct cc_var *ccv, struct cubic *cubicd)
 }
 
 static void
-cubic_ack_received(struct cc_var *ccv, uint16_t type)
+cubic_ack_received(struct cc_var *ccv, ccsignal_t type)
 {
 	struct cubic *cubic_data;
 	unsigned long W_est, W_cubic;
@@ -270,6 +270,7 @@ cubic_ack_received(struct cc_var *ccv, uint16_t type)
 				cubic_data->flags &= ~(CUBICFLAG_RTO_EVENT |
 						       CUBICFLAG_IN_SLOWSTART);
 				cubic_data->W_max = CCV(ccv, snd_cwnd);
+				cubic_data->t_epoch = ticks;
 				cubic_data->K = 0;
 			} else if (cubic_data->flags & (CUBICFLAG_IN_SLOWSTART |
 						 CUBICFLAG_IN_APPLIMIT)) {
@@ -384,7 +385,7 @@ cubic_cb_init(struct cc_var *ccv, void *ptr)
 {
 	struct cubic *cubic_data;
 
-	INP_WLOCK_ASSERT(tptoinpcb(ccv->ccvc.tcp));
+	INP_WLOCK_ASSERT(tptoinpcb(ccv->tp));
 	if (ptr == NULL) {
 		cubic_data = malloc(sizeof(struct cubic), M_CC_MEM, M_NOWAIT|M_ZERO);
 		if (cubic_data == NULL)
@@ -417,13 +418,13 @@ cubic_cb_init(struct cc_var *ccv, void *ptr)
  * Perform any necessary tasks before we enter congestion recovery.
  */
 static void
-cubic_cong_signal(struct cc_var *ccv, uint32_t type)
+cubic_cong_signal(struct cc_var *ccv, ccsignal_t type)
 {
 	struct cubic *cubic_data;
 	uint32_t mss, pipe;
 
 	cubic_data = ccv->cc_data;
-	mss = tcp_fixed_maxseg(ccv->ccvc.tcp);
+	mss = tcp_fixed_maxseg(ccv->tp);
 
 	switch (type) {
 	case CC_NDUPACK:
@@ -477,9 +478,9 @@ cubic_cong_signal(struct cc_var *ccv, uint32_t type)
 			cubic_data->undo_W_max = cubic_data->W_max;
 			cubic_data->undo_K = cubic_data->K;
 			if (V_tcp_do_newsack) {
-				pipe = tcp_compute_pipe(ccv->ccvc.tcp);
+				pipe = tcp_compute_pipe(ccv->tp);
 			} else {
-				pipe = CCV(ccv, snd_nxt) -
+				pipe = CCV(ccv, snd_max) -
 					CCV(ccv, snd_fack) +
 					CCV(ccv, sackhint.sack_bytes_rexmit);
 			}
@@ -489,19 +490,19 @@ cubic_cong_signal(struct cc_var *ccv, uint32_t type)
 		}
 		cubic_data->flags |= CUBICFLAG_CONG_EVENT | CUBICFLAG_RTO_EVENT;
 		cubic_data->undo_W_max = cubic_data->W_max;
-		cubic_data->num_cong_events++;
 		CCV(ccv, snd_cwnd) = mss;
 		break;
 
 	case CC_RTO_ERR:
 		cubic_data->flags &= ~(CUBICFLAG_CONG_EVENT | CUBICFLAG_RTO_EVENT);
-		cubic_data->num_cong_events--;
 		cubic_data->K = cubic_data->undo_K;
 		cubic_data->cwnd_prior = cubic_data->undo_cwnd_prior;
 		cubic_data->W_max = cubic_data->undo_W_max;
 		cubic_data->W_est = cubic_data->undo_W_est;
 		cubic_data->cwnd_epoch = cubic_data->undo_cwnd_epoch;
 		cubic_data->t_epoch = cubic_data->undo_t_epoch;
+		break;
+	default:
 		break;
 	}
 }
@@ -548,7 +549,7 @@ cubic_post_recovery(struct cc_var *ccv)
 		 * XXXLAS: Find a way to do this without needing curack
 		 */
 		if (V_tcp_do_newsack)
-			pipe = tcp_compute_pipe(ccv->ccvc.tcp);
+			pipe = tcp_compute_pipe(ccv->tp);
 		else
 			pipe = CCV(ccv, snd_max) - ccv->curack;
 
@@ -589,7 +590,7 @@ cubic_record_rtt(struct cc_var *ccv)
 	/* Ignore srtt until a min number of samples have been taken. */
 	if (CCV(ccv, t_rttupdated) >= CUBIC_MIN_RTT_SAMPLES) {
 		cubic_data = ccv->cc_data;
-		t_srtt_usecs = tcp_get_srtt(ccv->ccvc.tcp,
+		t_srtt_usecs = tcp_get_srtt(ccv->tp,
 					    TCP_TMR_GRANULARITY_USEC);
 		/*
 		 * Record the current SRTT as our minrtt if it's the smallest

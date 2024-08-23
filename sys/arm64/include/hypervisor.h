@@ -37,10 +37,19 @@
 
 /* CNTHCTL_EL2 - Counter-timer Hypervisor Control register */
 #define	CNTHCTL_EVNTI_MASK	(0xf << 4) /* Bit to trigger event stream */
+/* Valid if HCR_EL2.E2H == 0 */
+#define	CNTHCTL_EL1PCTEN	(1 << 0) /* Allow physical counter access */
+#define	CNTHCTL_EL1PCEN		(1 << 1) /* Allow physical timer access */
+/* Valid if HCR_EL2.E2H == 1 */
+#define	CNTHCTL_E2H_EL0PCTEN	(1 << 0) /* Allow EL0 physical counter access */
+#define	CNTHCTL_E2H_EL0VCTEN	(1 << 1) /* Allow EL0 virtual counter access */
+#define	CNTHCTL_E2H_EL0VTEN	(1 << 8)
+#define	CNTHCTL_E2H_EL0PTEN	(1 << 9)
+#define	CNTHCTL_E2H_EL1PCTEN	(1 << 10) /* Allow physical counter access */
+#define	CNTHCTL_E2H_EL1PTEN	(1 << 11) /* Allow physical timer access */
+/* Unconditionally valid */
 #define	CNTHCTL_EVNTDIR		(1 << 3) /* Control transition trigger bit */
 #define	CNTHCTL_EVNTEN		(1 << 2) /* Enable event stream */
-#define	CNTHCTL_EL1PCEN		(1 << 1) /* Allow EL0/1 physical timer access */
-#define	CNTHCTL_EL1PCTEN	(1 << 0) /*Allow EL0/1 physical counter access*/
 
 /* CPTR_EL2 - Architecture feature trap register */
 /* Valid if HCR_EL2.E2H == 0 */
@@ -126,6 +135,8 @@
 /* HPFAR_EL2_FIPA holds the 4k page address */
 #define	HPFAR_EL2_FIPA_ADDR(x)	\
     (HPFAR_EL2_FIPA_GET(x) << 12)
+/* The bits from FAR_EL2 we need to add to HPFAR_EL2_FIPA_ADDR */
+#define	FAR_EL2_HPFAR_PAGE_MASK	(0xffful)
 
 /* ICC_SRE_EL2 */
 #define	ICC_SRE_EL2_SRE		(1UL << 0)
@@ -141,10 +152,14 @@
 #define	SCTLR_EL2_C		(0x1UL << SCTLR_EL2_C_SHIFT)
 #define	SCTLR_EL2_SA_SHIFT	3
 #define	SCTLR_EL2_SA		(0x1UL << SCTLR_EL2_SA_SHIFT)
+#define	SCTLR_EL2_EOS_SHIFT	11
+#define	SCTLR_EL2_EOS		(0x1UL << SCTLR_EL2_EOS_SHIFT)
 #define	SCTLR_EL2_I_SHIFT	12
 #define	SCTLR_EL2_I		(0x1UL << SCTLR_EL2_I_SHIFT)
 #define	SCTLR_EL2_WXN_SHIFT	19
 #define	SCTLR_EL2_WXN		(0x1UL << SCTLR_EL2_WXN_SHIFT)
+#define	SCTLR_EL2_EIS_SHIFT	22
+#define	SCTLR_EL2_EIS		(0x1UL << SCTLR_EL2_EIS_SHIFT)
 #define	SCTLR_EL2_EE_SHIFT	25
 #define	SCTLR_EL2_EE		(0x1UL << SCTLR_EL2_EE_SHIFT)
 
@@ -169,6 +184,7 @@
 #define	TCR_EL2_TG0_64K		(0x1UL << TCR_EL2_TG0_SHIFT)
 #define	TCR_EL2_TG0_16K		(0x2UL << TCR_EL2_TG0_SHIFT)
 #define	TCR_EL2_PS_SHIFT	16
+#define	TCR_EL2_PS_MASK		(0xfUL << TCR_EL2_PS_SHIFT)
 #define	 TCR_EL2_PS_32BITS	(0UL << TCR_EL2_PS_SHIFT)
 #define	 TCR_EL2_PS_36BITS	(1UL << TCR_EL2_PS_SHIFT)
 #define	 TCR_EL2_PS_40BITS	(2UL << TCR_EL2_PS_SHIFT)

@@ -343,32 +343,6 @@ ld_utrace_log(int event, void *handle, void *mapbase, size_t mapsize,
 	utrace(&ut, sizeof(ut));
 }
 
-enum {
-	LD_BIND_NOW = 0,
-	LD_PRELOAD,
-	LD_LIBMAP,
-	LD_LIBRARY_PATH,
-	LD_LIBRARY_PATH_FDS,
-	LD_LIBMAP_DISABLE,
-	LD_BIND_NOT,
-	LD_DEBUG,
-	LD_ELF_HINTS_PATH,
-	LD_LOADFLTR,
-	LD_LIBRARY_PATH_RPATH,
-	LD_PRELOAD_FDS,
-	LD_DYNAMIC_WEAK,
-	LD_TRACE_LOADED_OBJECTS,
-	LD_UTRACE,
-	LD_DUMP_REL_PRE,
-	LD_DUMP_REL_POST,
-	LD_TRACE_LOADED_OBJECTS_PROGNAME,
-	LD_TRACE_LOADED_OBJECTS_FMT1,
-	LD_TRACE_LOADED_OBJECTS_FMT2,
-	LD_TRACE_LOADED_OBJECTS_ALL,
-	LD_SHOW_AUXV,
-	LD_STATIC_TLS_EXTRA,
-};
-
 struct ld_env_var_desc {
 	const char * const n;
 	const char *val;
@@ -401,9 +375,10 @@ static struct ld_env_var_desc ld_env_vars[] = {
 	LD_ENV_DESC(TRACE_LOADED_OBJECTS_ALL, false),
 	LD_ENV_DESC(SHOW_AUXV, false),
 	LD_ENV_DESC(STATIC_TLS_EXTRA, false),
+	LD_ENV_DESC(NO_DL_ITERATE_PHDR_AFTER_FORK, false),
 };
 
-static const char *
+const char *
 ld_get_env_var(int idx)
 {
 	return (ld_env_vars[idx].val);
@@ -929,7 +904,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
        exit (0);
     }
 
-    ifunc_init(aux);
+    ifunc_init(aux_info);
 
     /*
      * Setup TLS for main thread.  This must be done after the
@@ -1520,18 +1495,6 @@ digest_dynamic1(Obj_Entry *obj, int early, const Elf_Dyn **dyn_rpath,
 		    obj->static_tls = true;
 	    break;
 
-#ifdef __powerpc__
-#ifdef __powerpc64__
-	case DT_PPC64_GLINK:
-		obj->glink = (Elf_Addr)(obj->relocbase + dynp->d_un.d_ptr);
-		break;
-#else
-	case DT_PPC_GOT:
-		obj->gotptr = (Elf_Addr *)(obj->relocbase + dynp->d_un.d_ptr);
-		break;
-#endif
-#endif
-
 	case DT_FLAGS_1:
 		if (dynp->d_un.d_val & DF_1_NOOPEN)
 		    obj->z_noopen = true;
@@ -1554,6 +1517,9 @@ digest_dynamic1(Obj_Entry *obj, int early, const Elf_Dyn **dyn_rpath,
 	    break;
 
 	default:
+	    if (arch_digest_dynamic(obj, dynp))
+		break;
+
 	    if (!early) {
 		dbg("Ignoring d_tag %ld = %#lx", (long)dynp->d_tag,
 		    (long)dynp->d_tag);
@@ -1729,6 +1695,9 @@ digest_notes(Obj_Entry *obj, Elf_Addr note_start, Elf_Addr note_end)
 	    note = (const Elf_Note *)((const char *)(note + 1) +
 	      roundup2(note->n_namesz, sizeof(Elf32_Addr)) +
 	      roundup2(note->n_descsz, sizeof(Elf32_Addr)))) {
+		if (arch_digest_note(obj, note))
+			continue;
+
 		if (note->n_namesz != sizeof(NOTE_FREEBSD_VENDOR) ||
 		    note->n_descsz != sizeof(int32_t))
 			continue;
@@ -2050,6 +2019,9 @@ find_symdef(unsigned long symnum, const Obj_Entry *refobj,
     return (def);
 }
 
+/* Convert between native byte order and forced little resp. big endian. */
+#define COND_SWAP(n) (is_le ? le32toh(n) : be32toh(n))
+
 /*
  * Return the search path from the ldconfig hints file, reading it if
  * necessary.  If nostdlib is true, then the default search paths are
@@ -2073,6 +2045,12 @@ gethints(bool nostdlib)
 	int fd;
 	size_t flen;
 	uint32_t dl;
+	uint32_t magic;		/* Magic number */
+	uint32_t version;	/* File version (1) */
+	uint32_t strtab;	/* Offset of string table in file */
+	uint32_t dirlist;	/* Offset of directory list in string table */
+	uint32_t dirlistlen;	/* strlen(dirlist) */
+	bool is_le;		/* Does the hints file use little endian */
 	bool skip;
 
 	/* First call, read the hints file */
@@ -2080,8 +2058,10 @@ gethints(bool nostdlib)
 		/* Keep from trying again in case the hints file is bad. */
 		hints = "";
 
-		if ((fd = open(ld_elf_hints_path, O_RDONLY | O_CLOEXEC)) == -1)
+		if ((fd = open(ld_elf_hints_path, O_RDONLY | O_CLOEXEC)) == -1) {
+			dbg("failed to open hints file \"%s\"", ld_elf_hints_path);
 			return (NULL);
+		}
 
 		/*
 		 * Check of hdr.dirlistlen value against type limit
@@ -2089,29 +2069,65 @@ gethints(bool nostdlib)
 		 * paranoia leads to checks that dirlist is fully
 		 * contained in the file range.
 		 */
-		if (read(fd, &hdr, sizeof hdr) != sizeof hdr ||
-		    hdr.magic != ELFHINTS_MAGIC ||
-		    hdr.version != 1 || hdr.dirlistlen > UINT_MAX / 2 ||
-		    fstat(fd, &hint_stat) == -1) {
+		if (read(fd, &hdr, sizeof hdr) != sizeof hdr) {
+			dbg("failed to read %lu bytes from hints file \"%s\"",
+			    (u_long)sizeof hdr, ld_elf_hints_path);
 cleanup1:
 			close(fd);
 			hdr.dirlistlen = 0;
 			return (NULL);
 		}
-		dl = hdr.strtab;
-		if (dl + hdr.dirlist < dl)
+		dbg("host byte-order: %s-endian", le32toh(1) == 1 ? "little" : "big");
+		dbg("hints file byte-order: %s-endian",
+		    hdr.magic == htole32(ELFHINTS_MAGIC) ? "little" : "big");
+		is_le = /*htole32(1) == 1 || */ hdr.magic == htole32(ELFHINTS_MAGIC);
+		magic = COND_SWAP(hdr.magic);
+		version = COND_SWAP(hdr.version);
+		strtab = COND_SWAP(hdr.strtab);
+		dirlist = COND_SWAP(hdr.dirlist);
+		dirlistlen = COND_SWAP(hdr.dirlistlen);
+		if (magic != ELFHINTS_MAGIC) {
+			dbg("invalid magic number %#08x (expected: %#08x)",
+			    magic, ELFHINTS_MAGIC);
 			goto cleanup1;
-		dl += hdr.dirlist;
-		if (dl + hdr.dirlistlen < dl)
+		}
+		if (version != 1) {
+			dbg("hints file version %d (expected: 1)", version);
 			goto cleanup1;
-		dl += hdr.dirlistlen;
-		if (dl > hint_stat.st_size)
+		}
+		if (dirlistlen > UINT_MAX / 2) {
+			dbg("directory list is to long: %d > %d",
+			    dirlistlen, UINT_MAX / 2);
 			goto cleanup1;
-		p = xmalloc(hdr.dirlistlen + 1);
-		if (pread(fd, p, hdr.dirlistlen + 1,
-		    hdr.strtab + hdr.dirlist) != (ssize_t)hdr.dirlistlen + 1 ||
-		    p[hdr.dirlistlen] != '\0') {
+		}
+		if (fstat(fd, &hint_stat) == -1) {
+			dbg("failed to find length of hints file \"%s\"",
+			    ld_elf_hints_path);
+			goto cleanup1;
+		}
+		dl = strtab;
+		if (dl + dirlist < dl) {
+			dbg("invalid string table position %d", dl);
+			goto cleanup1;
+		}
+		dl += dirlist;
+		if (dl + dirlistlen < dl) {
+			dbg("invalid directory list offset %d", dirlist);
+			goto cleanup1;
+		}
+		dl += dirlistlen;
+		if (dl > hint_stat.st_size) {
+			dbg("hints file \"%s\" is truncated (%d vs. %jd bytes)",
+			    ld_elf_hints_path, dl, (uintmax_t)hint_stat.st_size);
+			goto cleanup1;
+		}
+		p = xmalloc(dirlistlen + 1);
+		if (pread(fd, p, dirlistlen + 1,
+		    strtab + dirlist) != (ssize_t)dirlistlen + 1 ||
+		    p[dirlistlen] != '\0') {
 			free(p);
+			dbg("failed to read %d bytes starting at %d from hints file \"%s\"",
+			    dirlistlen + 1, strtab + dirlist, ld_elf_hints_path);
 			goto cleanup1;
 		}
 		hints = p;
@@ -2174,7 +2190,7 @@ cleanup1:
 	 */
 	fndx = 0;
 	fcount = 0;
-	filtered_path = xmalloc(hdr.dirlistlen + 1);
+	filtered_path = xmalloc(dirlistlen + 1);
 	hintpath = &hintinfo->dls_serpath[0];
 	for (hintndx = 0; hintndx < hmeta.dls_cnt; hintndx++, hintpath++) {
 		skip = false;
@@ -2582,13 +2598,14 @@ load_filtee1(Obj_Entry *obj, Needed_Entry *needed, int flags,
 static void
 load_filtees(Obj_Entry *obj, int flags, RtldLockState *lockstate)
 {
-
-    if (!obj->filtees_loaded) {
+	if (obj->filtees_loaded || obj->filtees_loading)
+		return;
 	lock_restart_for_upgrade(lockstate);
+	obj->filtees_loading = true;
 	load_filtee1(obj, obj->needed_filtees, flags, lockstate);
 	load_filtee1(obj, obj->needed_aux_filtees, flags, lockstate);
 	obj->filtees_loaded = true;
-    }
+	obj->filtees_loading = false;
 }
 
 static int
@@ -2751,8 +2768,9 @@ load_object(const char *name, int fd_u, const Obj_Entry *refobj, int flags)
 	if (obj->ino == sb.st_ino && obj->dev == sb.st_dev)
 	    break;
     }
-    if (obj != NULL && name != NULL) {
-	object_add_name(obj, name);
+    if (obj != NULL) {
+	if (name != NULL)
+	    object_add_name(obj, name);
 	free(path);
 	close(fd);
 	return (obj);
@@ -4690,6 +4708,20 @@ symlook_needed(SymLook *req, const Needed_Entry *needed, DoneList *dlp)
     return (ESRCH);
 }
 
+static int
+symlook_obj_load_filtees(SymLook *req, SymLook *req1, const Obj_Entry *obj,
+    Needed_Entry *needed)
+{
+	DoneList donelist;
+	int flags;
+
+	flags = (req->flags & SYMLOOK_EARLY) != 0 ? RTLD_LO_EARLY : 0;
+	load_filtees(__DECONST(Obj_Entry *, obj), flags, req->lockstate);
+	donelist_init(&donelist);
+	symlook_init_from_req(req1, req);
+	return (symlook_needed(req1, needed, &donelist));
+}
+
 /*
  * Search the symbol table of a single shared object for a symbol of
  * the given name and version, if requested.  Returns a pointer to the
@@ -4702,9 +4734,8 @@ symlook_needed(SymLook *req, const Needed_Entry *needed, DoneList *dlp)
 int
 symlook_obj(SymLook *req, const Obj_Entry *obj)
 {
-    DoneList donelist;
     SymLook req1;
-    int flags, res, mres;
+    int res, mres;
 
     /*
      * If there is at least one valid hash at this point, we prefer to
@@ -4719,11 +4750,8 @@ symlook_obj(SymLook *req, const Obj_Entry *obj)
 
     if (mres == 0) {
 	if (obj->needed_filtees != NULL) {
-	    flags = (req->flags & SYMLOOK_EARLY) ? RTLD_LO_EARLY : 0;
-	    load_filtees(__DECONST(Obj_Entry *, obj), flags, req->lockstate);
-	    donelist_init(&donelist);
-	    symlook_init_from_req(&req1, req);
-	    res = symlook_needed(&req1, obj->needed_filtees, &donelist);
+	    res = symlook_obj_load_filtees(req, &req1, obj,
+		obj->needed_filtees);
 	    if (res == 0) {
 		req->sym_out = req1.sym_out;
 		req->defobj_out = req1.defobj_out;
@@ -4731,11 +4759,8 @@ symlook_obj(SymLook *req, const Obj_Entry *obj)
 	    return (res);
 	}
 	if (obj->needed_aux_filtees != NULL) {
-	    flags = (req->flags & SYMLOOK_EARLY) ? RTLD_LO_EARLY : 0;
-	    load_filtees(__DECONST(Obj_Entry *, obj), flags, req->lockstate);
-	    donelist_init(&donelist);
-	    symlook_init_from_req(&req1, req);
-	    res = symlook_needed(&req1, obj->needed_aux_filtees, &donelist);
+	    res = symlook_obj_load_filtees(req, &req1, obj,
+		obj->needed_aux_filtees);
 	    if (res == 0) {
 		req->sym_out = req1.sym_out;
 		req->defobj_out = req1.defobj_out;
@@ -6098,10 +6123,42 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp,
 				*fdp = fd;
 				seen_f = true;
 				break;
+			} else if (opt == 'o') {
+				struct ld_env_var_desc *l;
+				char *n, *v;
+				u_int ll;
+
+				if (j != arglen - 1) {
+					_rtld_error("Invalid options: %s", arg);
+					rtld_die();
+				}
+				i++;
+				n = argv[i];
+				v = strchr(n, '=');
+				if (v == NULL) {
+					_rtld_error("No '=' in -o parameter");
+					rtld_die();
+				}
+				for (ll = 0; ll < nitems(ld_env_vars); ll++) {
+					l = &ld_env_vars[ll];
+					if (v - n == (ptrdiff_t)strlen(l->n) &&
+					    strncmp(n, l->n, v - n) == 0) {
+						l->val = v + 1;
+						break;
+					}
+				}
+				if (ll == nitems(ld_env_vars)) {
+					_rtld_error("Unknown LD_ option %s",
+					    n);
+					rtld_die();
+				}
 			} else if (opt == 'p') {
 				*use_pathp = true;
 			} else if (opt == 'u') {
-				trust = false;
+				u_int ll;
+
+				for (ll = 0; ll < nitems(ld_env_vars); ll++)
+					ld_env_vars[ll].val = NULL;
 			} else if (opt == 'v') {
 				machine[0] = '\0';
 				mib[0] = CTL_HW;
@@ -6181,6 +6238,7 @@ print_usage(const char *argv0)
 	    "  -b <exe>  Execute <exe> instead of <binary>, arg0 is <binary>\n"
 	    "  -d        Ignore lack of exec permissions for the binary\n"
 	    "  -f <FD>   Execute <FD> instead of searching for <binary>\n"
+	    "  -o <OPT>=<VAL> Set LD_<OPT> to <VAL>, without polluting env\n"
 	    "  -p        Search in PATH for named binary\n"
 	    "  -u        Ignore LD_ environment variables\n"
 	    "  -v        Display identification information\n"

@@ -647,7 +647,7 @@ fm801_pci_attach(device_t dev)
 	pcm_addchan(dev, PCMDIR_REC, &fm801ch_class, fm801);
 	pcm_setstatus(dev, status);
 
-	fm801->radio = device_add_child(dev, "radio", -1);
+	fm801->radio = device_add_child(dev, "radio", DEVICE_UNIT_ANY);
 	bus_generic_attach(dev);
 
 	return 0;
@@ -728,8 +728,7 @@ fm801_alloc_resource(device_t bus, device_t child, int type, int *rid,
 }
 
 static int
-fm801_release_resource(device_t bus, device_t child, int type, int rid,
-		       struct resource *r)
+fm801_release_resource(device_t bus, device_t child, struct resource *r)
 {
 	return (0);
 }

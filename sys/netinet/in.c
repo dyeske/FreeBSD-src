@@ -165,7 +165,7 @@ in_localip(struct in_addr in)
 }
 
 /*
- * Like in_localip(), but FIB-aware.
+ * Like in_localip(), but FIB-aware and carp(4)-aware.
  */
 bool
 in_localip_fib(struct in_addr in, uint16_t fib)
@@ -176,6 +176,8 @@ in_localip_fib(struct in_addr in, uint16_t fib)
 
 	CK_LIST_FOREACH(ia, INADDR_HASH(in.s_addr), ia_hash)
 		if (IA_SIN(ia)->sin_addr.s_addr == in.s_addr &&
+		    (ia->ia_ifa.ifa_carp == NULL ||
+		    carp_master_p(&ia->ia_ifa)) &&
 		    ia->ia_ifa.ifa_ifp->if_fib == fib)
 			return (true);
 
@@ -1220,7 +1222,7 @@ in_ifscrub_all(void)
 {
 	struct ifnet *ifp;
 	struct ifaddr *ifa, *nifa;
-	struct ifaliasreq ifr;
+	struct ifreq ifr;
 
 	IFNET_RLOCK();
 	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
@@ -1235,9 +1237,7 @@ in_ifscrub_all(void)
 			 * cleanly remove addresses and everything attached.
 			 */
 			bzero(&ifr, sizeof(ifr));
-			ifr.ifra_addr = *ifa->ifa_addr;
-			if (ifa->ifa_dstaddr)
-			ifr.ifra_broadaddr = *ifa->ifa_dstaddr;
+			ifr.ifr_addr = *ifa->ifa_addr;
 			(void)in_control(NULL, SIOCDIFADDR, (caddr_t)&ifr,
 			    ifp, NULL);
 		}
@@ -1470,9 +1470,6 @@ in_lltable_new(struct in_addr addr4, u_int flags)
 
 	return (&lle->base);
 }
-
-#define IN_ARE_MASKED_ADDR_EQUAL(d, a, m)	(		\
-	((((d).s_addr ^ (a).s_addr) & (m).s_addr)) == 0 )
 
 static int
 in_lltable_match_prefix(const struct sockaddr *saddr,
