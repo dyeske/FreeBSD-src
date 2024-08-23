@@ -4,7 +4,7 @@
 # For more information on this file, please read the config(5) manual page,
 # and/or the handbook section on Kernel Configuration Files:
 #
-#    https://www.FreeBSD.org/doc/en_US.ISO8859-1/books/handbook/kernelconfig-config.html
+#    https://docs.freebsd.org/en/books/handbook/kernelconfig/#kernelconfig-config
 #
 # The handbook is also available locally in /usr/share/doc/handbook
 # if you've installed the doc distribution, otherwise always see the
@@ -31,14 +31,15 @@ options 	VIMAGE			# Subsystem virtualization, e.g. VNET
 options 	INET			# InterNETworking
 options 	INET6			# IPv6 communications protocols
 options 	IPSEC_SUPPORT		# Allow kldload of ipsec and tcpmd5
-options		ROUTE_MPATH		# Multipath routing support
-options		FIB_ALGO		# Modular fib lookups
+options 	IPSEC_OFFLOAD		# Inline ipsec offload infra
+options 	ROUTE_MPATH		# Multipath routing support
+options 	FIB_ALGO		# Modular fib lookups
 options 	TCP_OFFLOAD		# TCP offload
 options 	TCP_BLACKBOX		# Enhanced TCP event logging
 options 	TCP_HHOOK		# hhook(9) framework for TCP
-options		TCP_RFC7413		# TCP Fast Open
+options 	TCP_RFC7413		# TCP Fast Open
 options 	SCTP_SUPPORT		# Allow kldload of SCTP
-options		KERN_TLS		# TLS transmit & receive offload
+options 	KERN_TLS		# TLS transmit & receive offload
 options 	FFS			# Berkeley Fast Filesystem
 options 	SOFTUPDATES		# Enable FFS soft updates support
 options 	UFS_ACL			# Support for access control lists
@@ -118,7 +119,7 @@ device		smbios
 options 	IOMMU
 device		pci
 options 	PCI_HP			# PCI-Express native HotPlug
-options		PCI_IOV			# PCI SR-IOV support
+options 	PCI_IOV			# PCI SR-IOV support
 
 options 	COMPAT_LINUXKPI
 
@@ -174,6 +175,7 @@ device		psm			# PS/2 mouse
 
 device		kbdmux			# keyboard multiplexer
 
+# syscons is the legacy console driver, resembling an SCO console
 device		vga			# VGA video card driver
 options 	VESA			# Add support for VESA BIOS Extensions (VBE)
 
@@ -228,11 +230,9 @@ device		wlan_wep		# 802.11 WEP support
 device		wlan_ccmp		# 802.11 CCMP support
 device		wlan_tkip		# 802.11 TKIP support
 device		wlan_amrr		# AMRR transmit rate control algorithm
-device		ath			# Atheros NICs
-device		ath_pci			# Atheros pci/cardbus glue
-device		ath_hal			# pci/cardbus chip support
+device		ath			# Atheros CardBus/PCI NICs
+device		ath_hal			# Atheros CardBus/PCI chip support
 options 	AH_AR5416_INTERRUPT_MITIGATION # AR5416 interrupt mitigation
-options 	ATH_ENABLE_11N		# Enable 802.11n support for AR5416 and later
 device		ath_rate_sample		# SampleRate tx rate control for ath
 #device		bwi			# Broadcom BCM430x/BCM431x wireless NICs.
 #device		bwn			# Broadcom BCM43xx wireless NICs.
@@ -270,7 +270,9 @@ device		ohci			# OHCI PCI->USB interface
 device		ehci			# EHCI PCI->USB interface (USB 2.0)
 device		xhci			# XHCI PCI->USB interface (USB 3.0)
 device		usb			# USB Bus (required)
-device		ukbd			# Keyboard
+device		usbhid			# USB HID Transport
+device		hkbd			# HID Keyboard
+device		ukbd			# USB Keyboard
 device		umass			# Disks/Mass storage - Requires scbus and da
 
 # Sound support
@@ -321,4 +323,9 @@ device		uinput			# install /dev/uinput cdev
 # HID support
 options 	HID_DEBUG		# enable debug msgs
 device		hid			# Generic HID support
+device		hidbus			# Generic HID Bus
 options 	IICHID_SAMPLING		# Workaround missing GPIO INTR support
+
+# EFI devices
+device		efidev			# EFI pseudo-device
+device		efirtc			# EFI RTC
