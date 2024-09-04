@@ -374,8 +374,8 @@ struct pfi_dynaddr {
 		mtx_unlock(_s->lock);					\
 	} while (0)
 #else
-#define	PF_STATE_LOCK(s)	mtx_lock(s->lock)
-#define	PF_STATE_UNLOCK(s)	mtx_unlock(s->lock)
+#define	PF_STATE_LOCK(s)	mtx_lock((s)->lock)
+#define	PF_STATE_UNLOCK(s)	mtx_unlock((s)->lock)
 #endif
 
 #ifdef INVARIANTS
@@ -2329,7 +2329,7 @@ int	pf_multihome_scan_asconf(struct mbuf *, int, int, struct pf_pdesc *,
 	    struct pfi_kkif *);
 
 u_int32_t	pf_new_isn(struct pf_kstate *);
-void   *pf_pull_hdr(struct mbuf *, int, void *, int, u_short *, u_short *,
+void   *pf_pull_hdr(const struct mbuf *, int, void *, int, u_short *, u_short *,
 	    sa_family_t);
 void	pf_change_a(void *, u_int16_t *, u_int32_t, u_int8_t);
 void	pf_change_proto_a(struct mbuf *, void *, u_int16_t *, u_int32_t,
@@ -2576,8 +2576,8 @@ u_short			 pf_get_translation(struct pf_pdesc *, struct mbuf *,
 			    uint16_t, uint16_t, struct pf_kanchor_stackframe *,
 			    struct pf_krule **);
 
-struct pf_state_key	*pf_state_key_setup(struct pf_pdesc *, struct pf_addr *,
-			    struct pf_addr *, u_int16_t, u_int16_t);
+struct pf_state_key	*pf_state_key_setup(struct pf_pdesc *, struct mbuf *, int,
+			    struct pf_addr *, struct pf_addr *, u_int16_t, u_int16_t);
 struct pf_state_key	*pf_state_key_clone(const struct pf_state_key *);
 void			 pf_rule_to_actions(struct pf_krule *,
 			    struct pf_rule_actions *);
