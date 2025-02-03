@@ -9,6 +9,7 @@
 #define	__NVMFT_VAR_H__
 
 #include <sys/_callout.h>
+#include <sys/_nv.h>
 #include <sys/refcount.h>
 #include <sys/taskqueue.h>
 
@@ -110,6 +111,10 @@ void	nvmft_populate_active_nslist(struct nvmft_port *np, uint32_t nsid,
 void	nvmft_dispatch_command(struct nvmft_qpair *qp,
     struct nvmf_capsule *nc, bool admin);
 void	nvmft_terminate_commands(struct nvmft_controller *ctrlr);
+void	nvmft_abort_datamove(union ctl_io *io);
+void	nvmft_handle_datamove(union ctl_io *io);
+void	nvmft_drain_task(struct task *task);
+void	nvmft_enqueue_task(struct task *task);
 
 /* nvmft_controller.c */
 void	nvmft_controller_error(struct nvmft_controller *ctrlr,
@@ -121,23 +126,22 @@ void	nvmft_handle_admin_command(struct nvmft_controller *ctrlr,
 void	nvmft_handle_io_command(struct nvmft_qpair *qp, uint16_t qid,
     struct nvmf_capsule *nc);
 int	nvmft_handoff_admin_queue(struct nvmft_port *np,
-    const struct nvmf_handoff_controller_qpair *handoff,
+    enum nvmf_trtype trtype, const nvlist_t *params,
     const struct nvmf_fabric_connect_cmd *cmd,
     const struct nvmf_fabric_connect_data *data);
-int	nvmft_handoff_io_queue(struct nvmft_port *np,
-    const struct nvmf_handoff_controller_qpair *handoff,
-    const struct nvmf_fabric_connect_cmd *cmd,
+int	nvmft_handoff_io_queue(struct nvmft_port *np, enum nvmf_trtype trtype,
+    const nvlist_t *params, const struct nvmf_fabric_connect_cmd *cmd,
     const struct nvmf_fabric_connect_data *data);
 int	nvmft_printf(struct nvmft_controller *ctrlr, const char *fmt, ...)
     __printflike(2, 3);
 
 /* nvmft_qpair.c */
 struct nvmft_qpair *nvmft_qpair_init(enum nvmf_trtype trtype,
-    const struct nvmf_handoff_qpair_params *handoff, uint16_t qid,
-    const char *name);
+    const nvlist_t *params, uint16_t qid, const char *name);
 void	nvmft_qpair_shutdown(struct nvmft_qpair *qp);
 void	nvmft_qpair_destroy(struct nvmft_qpair *qp);
 struct nvmft_controller *nvmft_qpair_ctrlr(struct nvmft_qpair *qp);
+void	nvmft_qpair_datamove(struct nvmft_qpair *qp, union ctl_io *io);
 uint16_t nvmft_qpair_id(struct nvmft_qpair *qp);
 const char *nvmft_qpair_name(struct nvmft_qpair *qp);
 void	nvmft_command_completed(struct nvmft_qpair *qp,

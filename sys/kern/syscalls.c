@@ -510,7 +510,7 @@ const char *syscallnames[] = {
 	"symlinkat",			/* 502 = symlinkat */
 	"unlinkat",			/* 503 = unlinkat */
 	"posix_openpt",			/* 504 = posix_openpt */
-	"gssd_syscall",			/* 505 = gssd_syscall */
+	"obs_kgssapi",			/* 505 = obsolete kgssapi */
 	"jail_get",			/* 506 = jail_get */
 	"jail_set",			/* 507 = jail_set */
 	"jail_remove",			/* 508 = jail_remove */
@@ -594,4 +594,7 @@ const char *syscallnames[] = {
 	"timerfd_gettime",			/* 586 = timerfd_gettime */
 	"timerfd_settime",			/* 587 = timerfd_settime */
 	"kcmp",			/* 588 = kcmp */
+	"getrlimitusage",			/* 589 = getrlimitusage */
+	"fchroot",			/* 590 = fchroot */
+	"setcred",			/* 591 = setcred */
 };

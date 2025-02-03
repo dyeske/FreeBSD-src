@@ -36,6 +36,7 @@
 #define	CONFIG_PCI_MSI
 
 #include <linux/types.h>
+#include <linux/device/driver.h>
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -232,10 +233,14 @@ extern const char *pci_power_names[6];
 #define	PCI_L1SS_CTL1			0x8
 #define	PCI_L1SS_CTL1_L1SS_MASK		0xf
 
-#define	PCI_IRQ_LEGACY			0x01
+#define	PCI_IRQ_INTX			0x01
 #define	PCI_IRQ_MSI			0x02
 #define	PCI_IRQ_MSIX			0x04
-#define	PCI_IRQ_ALL_TYPES		(PCI_IRQ_MSIX|PCI_IRQ_MSI|PCI_IRQ_LEGACY)
+#define	PCI_IRQ_ALL_TYPES		(PCI_IRQ_MSIX|PCI_IRQ_MSI|PCI_IRQ_INTX)
+
+#if defined(LINUXKPI_VERSION) && (LINUXKPI_VERSION >= 60700)
+#define	PCI_IRQ_LEGACY			PCI_IRQ_INTX
+#endif
 
 struct pci_dev;
 
@@ -274,24 +279,8 @@ extern spinlock_t pci_lock;
 
 #define	__devexit_p(x)	x
 
-#define module_pci_driver(_driver)					\
-									\
-static inline int							\
-_pci_init(void)								\
-{									\
-									\
-	return (linux_pci_register_driver(&_driver));			\
-}									\
-									\
-static inline void							\
-_pci_exit(void)								\
-{									\
-									\
-	linux_pci_unregister_driver(&_driver);				\
-}									\
-									\
-module_init(_pci_init);							\
-module_exit(_pci_exit)
+#define	module_pci_driver(_drv)						\
+    module_driver(_drv, linux_pci_register_driver, linux_pci_unregister_driver)
 
 struct msi_msg {
 	uint32_t			data;
@@ -381,6 +370,9 @@ struct pci_dev *lkpi_pci_get_device(uint16_t, uint16_t, struct pci_dev *);
 struct msi_desc *lkpi_pci_msi_desc_alloc(int);
 struct device *lkpi_pci_find_irq_dev(unsigned int irq);
 int _lkpi_pci_enable_msi_range(struct pci_dev *pdev, int minvec, int maxvec);
+
+#define	pci_err(pdev, fmt, ...)						\
+    dev_err(&(pdev)->dev, fmt, __VA_ARGS__)
 
 static inline bool
 dev_is_pci(struct device *dev)
@@ -1363,6 +1355,9 @@ pci_bus_write_config_word(struct pci_bus *bus, unsigned int devfn, int pos,
 
 struct pci_dev *lkpi_pci_get_class(unsigned int class, struct pci_dev *from);
 #define	pci_get_class(class, from)	lkpi_pci_get_class(class, from)
+struct pci_dev *lkpi_pci_get_base_class(unsigned int class,
+    struct pci_dev *from);
+#define	pci_get_base_class(class, from)	lkpi_pci_get_base_class(class, from)
 
 /* -------------------------------------------------------------------------- */
 
@@ -1503,6 +1498,13 @@ pci_irq_vector(struct pci_dev *pdev, unsigned int vector)
 	}
 
         return (-ENXIO);
+}
+
+static inline int
+pci_wake_from_d3(struct pci_dev *pdev, bool enable)
+{
+
+	return (0);
 }
 
 #endif	/* _LINUXKPI_LINUX_PCI_H_ */

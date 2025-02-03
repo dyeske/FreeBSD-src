@@ -2595,7 +2595,7 @@ key_spdacquire(struct secpolicy *sp)
 	mtod(result, struct sadb_msg *)->sadb_msg_len =
 	    PFKEY_UNIT64(result->m_pkthdr.len);
 
-	return key_sendup_mbuf(NULL, m, KEY_SENDUP_REGISTERED);
+	return key_sendup_mbuf(NULL, result, KEY_SENDUP_REGISTERED);
 }
 
 /*
@@ -8712,6 +8712,9 @@ key_vnet_destroy(void *arg __unused)
 		}
 	}
 	SAHTREE_WUNLOCK();
+
+	/* Wait for async work referencing this VNET to finish. */
+	ipsec_accel_sync();
 
 	key_freesah_flushed(&sahdrainq);
 	hashdestroy(V_sphashtbl, M_IPSEC_SP, V_sphash_mask);

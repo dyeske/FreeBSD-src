@@ -106,8 +106,6 @@ static const struct {
 	{ HDA_INTEL_CMLKS,   "Intel Comet Lake-S",	0, 0 },
 	{ HDA_INTEL_CNLK,    "Intel Cannon Lake",	0, 0 },
 	{ HDA_INTEL_ICLK,    "Intel Ice Lake",		0, 0 },
-	{ HDA_INTEL_CMLKLP,  "Intel Comet Lake-LP",	0, 0 },
-	{ HDA_INTEL_CMLKH,   "Intel Comet Lake-H",	0, 0 },
 	{ HDA_INTEL_TGLK,    "Intel Tiger Lake",	0, 0 },
 	{ HDA_INTEL_TGLKH,   "Intel Tiger Lake-H",	0, 0 },
 	{ HDA_INTEL_GMLK,    "Intel Gemini Lake",	0, 0 },
@@ -1627,7 +1625,7 @@ hdac_attach2(void *arg)
 			sc->codecs[i].dev = child;
 		}
 	}
-	bus_generic_attach(sc->dev);
+	bus_attach_children(sc->dev);
 
 	SYSCTL_ADD_PROC(device_get_sysctl_ctx(sc->dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(sc->dev)), OID_AUTO,
@@ -1742,20 +1740,11 @@ static int
 hdac_detach(device_t dev)
 {
 	struct hdac_softc *sc = device_get_softc(dev);
-	device_t *devlist;
-	int cad, i, devcount, error;
+	int i, error;
 
-	if ((error = device_get_children(dev, &devlist, &devcount)) != 0)
+	error = bus_generic_detach(dev);
+	if (error != 0)
 		return (error);
-	for (i = 0; i < devcount; i++) {
-		cad = (intptr_t)device_get_ivars(devlist[i]);
-		if ((error = device_delete_child(dev, devlist[i])) != 0) {
-			free(devlist, M_TEMP);
-			return (error);
-		}
-		sc->codecs[cad].dev = NULL;
-	}
-	free(devlist, M_TEMP);
 
 	hdac_lock(sc);
 	hdac_reset(sc, false);

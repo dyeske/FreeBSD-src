@@ -442,8 +442,8 @@ eqos_setup_rxfilter(struct eqos_softc *sc)
 	WR4(sc, GMAC_MAC_ADDRESS0_LOW, val);
 
 	/* Multicast hash filters */
-	WR4(sc, GMAC_MAC_HASH_TABLE_REG0, hash[1]);
-	WR4(sc, GMAC_MAC_HASH_TABLE_REG1, hash[0]);
+	WR4(sc, GMAC_MAC_HASH_TABLE_REG0, hash[0]);
+	WR4(sc, GMAC_MAC_HASH_TABLE_REG1, hash[1]);
 
 	/* Packet filter config */
 	WR4(sc, GMAC_MAC_PACKET_FILTER, pfil);
@@ -1216,8 +1216,6 @@ eqos_detach(device_t dev)
 		ether_ifdetach(sc->ifp);
 	}
 
-	if (sc->miibus)
-		device_delete_child(dev, sc->miibus);
 	bus_generic_detach(dev);
 
 	if (sc->irq_handle)

@@ -2308,7 +2308,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x3E, 0x02, SS_RDEF,
 	    "Timeout on logical unit") },
 	/* DTLPWROMAEBKVF */
-	{ SST(0x3E, 0x03, SS_RDEF,	/* XXX TBD */
+	{ SST(0x3E, 0x03, SS_FATAL | ENXIO,
 	    "Logical unit failed self-test") },
 	/* DTLPWROMAEBKVF */
 	{ SST(0x3E, 0x04, SS_RDEF,	/* XXX TBD */
@@ -2413,7 +2413,7 @@ static struct asc_table_entry asc_table[] = {
 	{ SST(0x43, 0x00, SS_RDEF,
 	    "Message error") },
 	/* DTLPWROMAEBKVF */
-	{ SST(0x44, 0x00, SS_FATAL | EIO,
+	{ SST(0x44, 0x00, SS_FATAL | ENXIO,
 	    "Internal target failure") },
 	/* DT P   MAEBKVF */
 	{ SST(0x44, 0x01, SS_RDEF,	/* XXX TBD */

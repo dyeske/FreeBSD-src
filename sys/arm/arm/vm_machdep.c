@@ -162,11 +162,9 @@ cpu_set_syscall_retval(struct thread *td, int error)
 		/*
 		 * Reconstruct the pc to point at the swi.
 		 */
-#if __ARM_ARCH >= 7
 		if ((frame->tf_spsr & PSR_T) != 0)
 			frame->tf_pc -= THUMB_INSN_SIZE;
 		else
-#endif
 			frame->tf_pc -= INSN_SIZE;
 		break;
 	case EJUSTRETURN:
@@ -278,6 +276,13 @@ cpu_fork_kthread_handler(struct thread *td, void (*func)(void *), void *arg)
 {
 	td->td_pcb->pcb_regs.sf_r4 = (register_t)func;	/* function */
 	td->td_pcb->pcb_regs.sf_r5 = (register_t)arg;	/* first arg */
+}
+
+void
+cpu_update_pcb(struct thread *td)
+{
+	MPASS(td == curthread);
+	td->td_pcb->pcb_regs.sf_tpidrurw = (register_t)get_tls();
 }
 
 void

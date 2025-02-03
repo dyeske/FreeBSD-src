@@ -72,7 +72,6 @@ FBSD_1.0 {
 	extattr_set_file;
 	extattr_set_link;
 	extattrctl;
-	errno;
 	fchdir;
 	fchflags;
 	fchmod;
@@ -379,14 +378,16 @@ FBSD_1.7 {
 };
 
 FBSD_1.8 {
-	 kcmp;
+	fchroot;
+	getrlimitusage;
+	kcmp;
+	setcred;
 };
 
 FBSDprivate_1.0 {
 	/* Add entries in sort(1) order */
 	__set_error_selector;
 	__sigwait;
-	gssd_syscall;
 	nlm_syscall;
 	rpctls_syscall;
 };

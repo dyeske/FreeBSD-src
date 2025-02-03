@@ -221,7 +221,7 @@ mana_gd_alloc_memory(struct gdma_context *gc, unsigned int length,
 	if (!gc || !gmi)
 		return EINVAL;
 
-	if (length < PAGE_SIZE || (length != roundup_pow_of_two(length)))
+	if (length < PAGE_SIZE || !powerof2(length))
 		return EINVAL;
 
 	err = bus_dma_tag_create(bus_get_dma_tag(gc->dev),	/* parent */
@@ -1879,6 +1879,11 @@ static int
 mana_gd_detach(device_t dev)
 {
 	struct gdma_context *gc = device_get_softc(dev);
+	int error;
+
+	error = bus_generic_detach(dev);
+	if (error != 0)
+		return (error);
 
 	mana_remove(&gc->mana);
 
@@ -1890,7 +1895,7 @@ mana_gd_detach(device_t dev)
 
 	pci_disable_busmaster(dev);
 
-	return (bus_generic_detach(dev));
+	return (0);
 }
 
 

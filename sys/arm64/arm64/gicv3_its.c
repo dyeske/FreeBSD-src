@@ -444,7 +444,7 @@ gicv3_its_table_page_size(struct gicv3_its_softc *sc, int table)
 	reg = gic_its_read_8(sc, GITS_BASER(table));
 
 	while (1) {
-		reg &= GITS_BASER_PSZ_MASK;
+		reg &= ~GITS_BASER_PSZ_MASK;
 		switch (page_size) {
 		case PAGE_SIZE_4K:	/* 4KB */
 			reg |= GITS_BASER_PSZ_4K << GITS_BASER_PSZ_SHIFT;
@@ -532,7 +532,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 		cache = 0;
 	} else {
 		devbits = GITS_TYPER_DEVB(gic_its_read_8(sc, GITS_TYPER));
-		cache = GITS_BASER_CACHE_WAWB;
+		cache = GITS_BASER_CACHE_RAWAWB;
 	}
 	sc->sc_devbits = devbits;
 	share = GITS_BASER_SHARE_IS;
@@ -586,11 +586,20 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 			its_tbl_size = l1_esize * l1_nidents;
 			its_tbl_size = roundup2(its_tbl_size, page_size);
 			break;
-		case GITS_BASER_TYPE_VP:
 		case GITS_BASER_TYPE_PP: /* Undocumented? */
 		case GITS_BASER_TYPE_IC:
 			its_tbl_size = page_size;
 			break;
+		case GITS_BASER_TYPE_VP:
+			/*
+			 * If GITS_TYPER.SVPET != 0, the pending table is
+			 * shared amongst the redistibutors and ther other
+			 * ITSes. Requiring sharing across the ITSes when none
+			 * of the redistributors have GICR_VPROPBASER.Valid==1
+			 * isn't specified in the architecture, but that's how
+			 * the GIC-700 behaves. We don't handle vPE tables at
+			 * all yet, so just skip this base register.
+			 */
 		default:
 			if (bootverbose)
 				device_printf(dev, "Unhandled table type %lx\n",
@@ -1284,7 +1293,7 @@ gicv3_its_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 
 #ifdef SMP
 static void
-gicv3_its_init_secondary(device_t dev)
+gicv3_its_init_secondary(device_t dev, uint32_t rootnum)
 {
 	struct gicv3_its_softc *sc;
 

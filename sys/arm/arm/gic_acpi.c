@@ -227,7 +227,7 @@ gic_acpi_attach(device_t dev)
 	/*
 	 * Controller is root:
 	 */
-	if (intr_pic_claim_root(dev, xref, arm_gic_intr, sc) != 0) {
+	if (intr_pic_claim_root(dev, xref, arm_gic_intr, sc, INTR_ROOT_IRQ) != 0) {
 		device_printf(dev, "could not set PIC as a root\n");
 		intr_pic_deregister(dev, xref);
 		goto cleanup;
@@ -242,8 +242,8 @@ gic_acpi_attach(device_t dev)
 
 	/* If we have children probe and attach them */
 	if (arm_gic_add_children(dev)) {
-		bus_generic_probe(dev);
-		return (bus_generic_attach(dev));
+		bus_identify_children(dev);
+		bus_attach_children(dev);
 	}
 
 	return (0);

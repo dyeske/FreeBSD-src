@@ -122,7 +122,7 @@ menu.boot_environments = {
 				if is_default then
 					name_color = color.escapefg(color.GREEN)
 				else
-					name_color = color.escapefg(color.BLUE)
+					name_color = color.escapefg(color.CYAN)
 				end
 				bootenv_name = bootenv_name .. name_color ..
 				    choice .. color.resetfg()
@@ -255,9 +255,16 @@ menu.welcome = {
 			},
 			{
 				entry_type = core.MENU_SEPARATOR,
-				name = "Options:",
+				name = "Kernel:",
 			},
 			menu_entries.kernel_options,
+			{
+				entry_type = core.MENU_SEPARATOR,
+			},
+			{
+				entry_type = core.MENU_SEPARATOR,
+				name = "Options:",
+			},
 			menu_entries.boot_options,
 			menu_entries.zpool_checkpoints,
 			menu_entries.boot_envs,
@@ -332,22 +339,19 @@ menu.welcome = {
 			items = core.kernelList,
 			name = function(idx, choice, all_choices)
 				if #all_choices == 0 then
-					return "Kernel: "
+					return ""
 				end
 
-				local is_default = (idx == 1)
-				local kernel_name = ""
+				local kernel_name
 				local name_color
-				if is_default then
+				if idx == 1 then
 					name_color = color.escapefg(color.GREEN)
-					kernel_name = "default/"
 				else
-					name_color = color.escapefg(color.BLUE)
+					name_color = color.escapefg(color.CYAN)
 				end
-				kernel_name = kernel_name .. name_color ..
-				    choice .. color.resetfg()
-				return color.highlight("K") .. "ernel: " ..
-				    kernel_name .. " (" .. idx .. " of " ..
+				kernel_name = name_color .. choice ..
+				    color.resetfg()
+				return kernel_name .. " (" .. idx .. " of " ..
 				    #all_choices .. ")"
 			end,
 			func = function(_, choice, _)
@@ -530,6 +534,7 @@ function menu.run()
 	drawn_menu = nil
 
 	screen.defcursor()
+	-- We explicitly want the newline print adds
 	print("Exiting menu!")
 end
 
@@ -544,7 +549,7 @@ function menu.autoboot(delay)
 		if last == nil or last ~= time then
 			last = time
 			screen.setcursor(x, y)
-			print("Autoboot in " .. time ..
+			printc("Autoboot in " .. time ..
 			    " seconds. [Space] to pause ")
 			screen.defcursor()
 		end
@@ -553,9 +558,12 @@ function menu.autoboot(delay)
 			if ch == core.KEY_ENTER then
 				break
 			else
-				-- erase autoboot msg
-				screen.setcursor(0, y)
-				print(string.rep(" ", 80))
+				-- Erase autoboot msg.  While real VT100s
+				-- wouldn't scroll when receiving a char with
+				-- the cursor at (79, 24), bad emulators do.
+				-- Avoid the issue by stopping at 79.
+				screen.setcursor(1, y)
+				printc(string.rep(" ", 79))
 				screen.defcursor()
 				return ch
 			end

@@ -160,7 +160,6 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/errno.h>
-#include <sys/uio_impl.h>
 #include <sys/file.h>
 #include <sys/kmem.h>
 #include <sys/cmn_err.h>
@@ -1719,6 +1718,9 @@ zfs_ioc_pool_scrub(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
 		error = spa_scrub_pause_resume(spa, POOL_SCRUB_PAUSE);
 	} else if (scan_type == POOL_SCAN_NONE) {
 		error = spa_scan_stop(spa);
+	} else if (scan_cmd == POOL_SCRUB_FROM_LAST_TXG) {
+		error = spa_scan_range(spa, scan_type,
+		    spa_get_last_scrubbed_txg(spa), 0);
 	} else {
 		error = spa_scan(spa, scan_type);
 	}
@@ -1794,17 +1796,45 @@ zfs_ioc_pool_get_history(zfs_cmd_t *zc)
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_nvlist_src	nvlist optionally containing ZPOOL_REGUID_GUID
+ * zc_nvlist_src_size	size of the nvlist
+ */
 static int
 zfs_ioc_pool_reguid(zfs_cmd_t *zc)
 {
+	uint64_t *guidp = NULL;
+	nvlist_t *props = NULL;
 	spa_t *spa;
+	uint64_t guid;
 	int error;
+
+	if (zc->zc_nvlist_src_size != 0) {
+		error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
+		    zc->zc_iflags, &props);
+		if (error != 0)
+			return (error);
+
+		error = nvlist_lookup_uint64(props, ZPOOL_REGUID_GUID, &guid);
+		if (error == 0)
+			guidp = &guid;
+		else if (error == ENOENT)
+			guidp = NULL;
+		else
+			goto out;
+	}
 
 	error = spa_open(zc->zc_name, &spa, FTAG);
 	if (error == 0) {
-		error = spa_change_guid(spa);
+		error = spa_change_guid(spa, guidp);
 		spa_close(spa, FTAG);
 	}
+
+out:
+	if (props != NULL)
+		nvlist_free(props);
+
 	return (error);
 }
 
@@ -2567,6 +2597,41 @@ zfs_prop_set_special(const char *dsname, zprop_source_t source,
 		}
 		break;
 	}
+	case ZFS_PROP_LONGNAME:
+	{
+		zfsvfs_t *zfsvfs;
+
+		/*
+		 * Ignore the checks if the property is being applied as part of
+		 * 'zfs receive'. Because, we already check if the local pool
+		 * has SPA_FEATURE_LONGNAME enabled in dmu_recv_begin_check().
+		 */
+		if (source == ZPROP_SRC_RECEIVED) {
+			cmn_err(CE_NOTE, "Skipping ZFS_PROP_LONGNAME checks "
+			    "for dsname=%s\n", dsname);
+			err = -1;
+			break;
+		}
+
+		if ((err = zfsvfs_hold(dsname, FTAG, &zfsvfs, B_FALSE)) != 0) {
+			cmn_err(CE_WARN, "%s:%d Failed to hold for dsname=%s "
+			    "err=%d\n", __FILE__, __LINE__, dsname, err);
+			break;
+		}
+
+		if (!spa_feature_is_enabled(zfsvfs->z_os->os_spa,
+		    SPA_FEATURE_LONGNAME)) {
+			err = ENOTSUP;
+		} else {
+			/*
+			 * Set err to -1 to force the zfs_set_prop_nvlist code
+			 * down the default path to set the value in the nvlist.
+			 */
+			err = -1;
+		}
+		zfsvfs_rele(zfsvfs, FTAG);
+		break;
+	}
 	default:
 		err = -1;
 	}
@@ -3022,7 +3087,6 @@ static const zfs_ioc_key_t zfs_keys_get_props[] = {
 static int
 zfs_ioc_pool_get_props(const char *pool, nvlist_t *innvl, nvlist_t *outnvl)
 {
-	nvlist_t *nvp = outnvl;
 	spa_t *spa;
 	char **props = NULL;
 	unsigned int n_props = 0;
@@ -3041,16 +3105,17 @@ zfs_ioc_pool_get_props(const char *pool, nvlist_t *innvl, nvlist_t *outnvl)
 		 */
 		mutex_enter(&spa_namespace_lock);
 		if ((spa = spa_lookup(pool)) != NULL) {
-			error = spa_prop_get(spa, &nvp);
+			error = spa_prop_get(spa, outnvl);
 			if (error == 0 && props != NULL)
 				error = spa_prop_get_nvlist(spa, props, n_props,
-				    &nvp);
+				    outnvl);
 		}
 		mutex_exit(&spa_namespace_lock);
 	} else {
-		error = spa_prop_get(spa, &nvp);
+		error = spa_prop_get(spa, outnvl);
 		if (error == 0 && props != NULL)
-			error = spa_prop_get_nvlist(spa, props, n_props, &nvp);
+			error = spa_prop_get_nvlist(spa, props, n_props,
+			    outnvl);
 		spa_close(spa, FTAG);
 	}
 
@@ -4312,6 +4377,51 @@ zfs_ioc_pool_trim(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
 
 	spa_close(spa, FTAG);
 	return (total_errors > 0 ? SET_ERROR(EINVAL) : 0);
+}
+
+#define	DDT_PRUNE_UNIT		"ddt_prune_unit"
+#define	DDT_PRUNE_AMOUNT	"ddt_prune_amount"
+
+/*
+ * innvl: {
+ *     "ddt_prune_unit" -> uint32_t
+ *     "ddt_prune_amount" -> uint64_t
+ * }
+ *
+ * outnvl: "waited" -> boolean_t
+ */
+static const zfs_ioc_key_t zfs_keys_ddt_prune[] = {
+	{DDT_PRUNE_UNIT,	DATA_TYPE_INT32,	0},
+	{DDT_PRUNE_AMOUNT,	DATA_TYPE_UINT64,	0},
+};
+
+static int
+zfs_ioc_ddt_prune(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
+{
+	int32_t unit;
+	uint64_t amount;
+
+	if (nvlist_lookup_int32(innvl, DDT_PRUNE_UNIT, &unit) != 0 ||
+	    nvlist_lookup_uint64(innvl, DDT_PRUNE_AMOUNT, &amount) != 0) {
+		return (EINVAL);
+	}
+
+	spa_t *spa;
+	int error = spa_open(poolname, &spa, FTAG);
+	if (error != 0)
+		return (error);
+
+	if (!spa_feature_is_enabled(spa, SPA_FEATURE_FAST_DEDUP)) {
+		spa_close(spa, FTAG);
+		return (SET_ERROR(ENOTSUP));
+	}
+
+	error = ddt_prune_unique_entries(spa, (zpool_ddt_prune_unit_t)unit,
+	    amount);
+
+	spa_close(spa, FTAG);
+
+	return (error);
 }
 
 /*
@@ -7401,6 +7511,11 @@ zfs_ioctl_init(void)
 	    zfs_ioc_pool_get_props, zfs_secpolicy_read, POOL_NAME,
 	    POOL_CHECK_NONE, B_FALSE, B_FALSE,
 	    zfs_keys_get_props, ARRAY_SIZE(zfs_keys_get_props));
+
+	zfs_ioctl_register("zpool_ddt_prune", ZFS_IOC_DDT_PRUNE,
+	    zfs_ioc_ddt_prune, zfs_secpolicy_config, POOL_NAME,
+	    POOL_CHECK_SUSPENDED | POOL_CHECK_READONLY, B_TRUE, B_TRUE,
+	    zfs_keys_ddt_prune, ARRAY_SIZE(zfs_keys_ddt_prune));
 
 	/* IOCTLS that use the legacy function signature */
 

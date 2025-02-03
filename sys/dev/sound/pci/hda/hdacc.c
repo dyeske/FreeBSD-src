@@ -358,6 +358,7 @@ static const struct {
 	{ HDA_CODEC_NVIDIAMCP78_3, 0,	"NVIDIA MCP78" },
 	{ HDA_CODEC_NVIDIAMCP78_4, 0,	"NVIDIA MCP78" },
 	{ HDA_CODEC_NVIDIAMCP7A, 0,	"NVIDIA MCP7A" },
+	{ HDA_CODEC_NVIDIAGM204, 0,	"NVIDIA GM204" },
 	{ HDA_CODEC_NVIDIAGT220, 0,	"NVIDIA GT220" },
 	{ HDA_CODEC_NVIDIAGT21X, 0,	"NVIDIA GT21x" },
 	{ HDA_CODEC_NVIDIAMCP89, 0,	"NVIDIA MCP89" },
@@ -529,7 +530,7 @@ hdacc_attach(device_t dev)
 		device_set_ivars(child, &codec->fgs[n]);
 	}
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -540,7 +541,7 @@ hdacc_detach(device_t dev)
 	struct hdacc_softc *codec = device_get_softc(dev);
 	int error;
 
-	if ((error = device_delete_children(dev)) != 0)
+	if ((error = bus_generic_detach(dev)) != 0)
 		return (error);
 	free(codec->fgs, M_HDACC);
 	return (0);

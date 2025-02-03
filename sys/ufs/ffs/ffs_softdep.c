@@ -2631,7 +2631,8 @@ softdep_mount(struct vnode *devvp,
 
 	if ((fs->fs_flags & FS_SUJ) &&
 	    (error = journal_mount(mp, fs, cred)) != 0) {
-		printf("Failed to start journal: %d\n", error);
+		printf("%s: failed to start journal: %d\n",
+		    mp->mnt_stat.f_mntonname, error);
 		softdep_unmount(mp);
 		return (error);
 	}
@@ -2641,10 +2642,18 @@ softdep_mount(struct vnode *devvp,
 	ACQUIRE_LOCK(ump);
 	ump->softdep_flags |= FLUSH_STARTING;
 	FREE_LOCK(ump);
-	kproc_kthread_add(&softdep_flush, mp, &bufdaemonproc,
+	error = kproc_kthread_add(&softdep_flush, mp, &bufdaemonproc,
 	    &ump->softdep_flushtd, 0, 0, "softdepflush", "%s worker",
 	    mp->mnt_stat.f_mntonname);
 	ACQUIRE_LOCK(ump);
+	if (error != 0) {
+		printf("%s: failed to start softdepflush thread: %d\n",
+		    mp->mnt_stat.f_mntonname, error);
+		ump->softdep_flags &= ~FLUSH_STARTING;
+		FREE_LOCK(ump);
+		softdep_unmount(mp);
+		return (error);
+	}
 	while ((ump->softdep_flags & FLUSH_STARTING) != 0) {
 		msleep(&ump->softdep_flushtd, LOCK_PTR(ump), PVM, "sdstart",
 		    hz / 2);
@@ -3621,6 +3630,7 @@ softdep_process_journal(struct mount *mp,
 	int cnt;
 	int off;
 	int devbsize;
+	int savef;
 
 	ump = VFSTOUFS(mp);
 	if (ump->um_softdep == NULL || ump->um_softdep->sd_jblocks == NULL)
@@ -3632,6 +3642,8 @@ softdep_process_journal(struct mount *mp,
 	fs = ump->um_fs;
 	jblocks = ump->softdep_jblocks;
 	devbsize = ump->um_devvp->v_bufobj.bo_bsize;
+	savef = curthread_pflags_set(TDP_NORUNNINGBUF);
+
 	/*
 	 * We write anywhere between a disk block and fs block.  The upper
 	 * bound is picked to prevent buffer cache fragmentation and limit
@@ -3850,12 +3862,15 @@ softdep_process_journal(struct mount *mp,
 	 */
 	if (flags == 0 && jblocks->jb_suspended) {
 		if (journal_unsuspend(ump))
-			return;
+			goto out;
 		FREE_LOCK(ump);
 		VFS_SYNC(mp, MNT_NOWAIT);
 		ffs_sbupdate(ump, MNT_WAIT, 0);
 		ACQUIRE_LOCK(ump);
 	}
+
+out:
+	curthread_pflags_restore(savef);
 }
 
 /*
@@ -9922,7 +9937,7 @@ clear_unlinked_inodedep( struct inodedep *inodedep)
 		if (pino == 0) {
 			bcopy((caddr_t)fs, bp->b_data, (uint64_t)fs->fs_sbsize);
 			bpfs = (struct fs *)bp->b_data;
-			ffs_oldfscompat_write(bpfs, ump);
+			ffs_oldfscompat_write(bpfs);
 			softdep_setup_sbupdate(ump, bpfs, bp);
 			/*
 			 * Because we may have made changes to the superblock,
@@ -9954,7 +9969,7 @@ clear_unlinked_inodedep( struct inodedep *inodedep)
 			    (int)fs->fs_sbsize, 0, 0, 0);
 			bcopy((caddr_t)fs, bp->b_data, (uint64_t)fs->fs_sbsize);
 			bpfs = (struct fs *)bp->b_data;
-			ffs_oldfscompat_write(bpfs, ump);
+			ffs_oldfscompat_write(bpfs);
 			softdep_setup_sbupdate(ump, bpfs, bp);
 			/*
 			 * Because we may have made changes to the superblock,

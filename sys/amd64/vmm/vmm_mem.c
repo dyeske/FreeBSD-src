@@ -45,13 +45,6 @@
 
 #include "vmm_mem.h"
 
-int
-vmm_mem_init(void)
-{
-
-	return (0);
-}
-
 vm_object_t
 vmm_mmio_alloc(struct vmspace *vmspace, vm_paddr_t gpa, size_t len,
 	       vm_paddr_t hpa)
@@ -95,7 +88,7 @@ vmm_mmio_alloc(struct vmspace *vmspace, vm_paddr_t gpa, size_t len,
 	 * has incremented the reference count on the sglist. Dropping the
 	 * initial reference count ensures that the sglist will be freed
 	 * when the object is deallocated.
-	 * 
+	 *
 	 * If the object could not be allocated then we end up freeing the
 	 * sglist.
 	 */

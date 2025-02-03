@@ -198,7 +198,6 @@ SUBDIR=	\
 	${_iwlwifi} \
 	${_iwlwififw} \
 	${_iwm} \
-	${_iwmfw} \
 	${_iwn} \
 	${_iwnfw} \
 	${_ix} \
@@ -347,6 +346,7 @@ SUBDIR=	\
 	${_rockchip} \
 	rtsx \
 	${_rtw88} \
+	${_rtw89} \
 	rtwn \
 	rtwn_pci \
 	rtwn_usb \
@@ -573,6 +573,7 @@ _iwlwifi=	iwlwifi
 _iwlwififw=	iwlwififw
 .endif
 _rtw88=		rtw88
+_rtw89=		rtw89
 _vmware=	vmware
 .endif
 
@@ -803,7 +804,6 @@ _iwn=		iwn
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ipwfw=		ipwfw
 _iwifw=		iwifw
-_iwmfw=		iwmfw
 _iwnfw=		iwnfw
 .endif
 _nfe=		nfe
@@ -854,7 +854,8 @@ _smartpqi=	smartpqi
 _p2sb=		p2sb
 .endif
 
-.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64"
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || \
+    ${MACHINE_CPUARCH} == "riscv"
 .if ${MK_BHYVE} != "no" || defined(ALL_MODULES)
 .if ${KERN_OPTS:MSMP}
 _vmm=		vmm

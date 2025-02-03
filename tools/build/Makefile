@@ -275,6 +275,7 @@ MSDOSFSINCS+=	${SRCTOP}/sys/fs/msdosfs/msdosfsmount.h
 DISKINCS+=	${SRCTOP}/sys/sys/disk/bsd.h
 
 # Needed to build config (since it uses libnv)
+SYSINCS+=	${SRCTOP}/sys/sys/_nv.h
 SYSINCS+=	${SRCTOP}/sys/sys/nv.h ${SRCTOP}/sys/sys/cnv.h \
 		${SRCTOP}/sys/sys/dnv.h ${SRCTOP}/sys/sys/nv_namespace.h
 
@@ -304,6 +305,10 @@ SYSINCS+=	${SRCTOP}/sys/sys/ctf.h
 SYSINCS+=	${SRCTOP}/sys/sys/kbio.h
 # for kldxref:
 SYSINCS+=	${SRCTOP}/sys/sys/module.h
+.if ${.MAKE.OS} != "FreeBSD"
+# for libmd:
+SYSINCS+=	${SRCTOP}/sys/sys/md4.h
+.endif
 
 # We want to run the build with only ${WORLDTMP} in $PATH to ensure we don't
 # accidentally run tools that are incompatible but happen to be in $PATH.

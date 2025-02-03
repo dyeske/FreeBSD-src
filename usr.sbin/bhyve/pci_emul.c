@@ -136,7 +136,7 @@ static TAILQ_HEAD(boot_list, boot_device) boot_devices = TAILQ_HEAD_INITIALIZER(
  * change this address without changing it in OVMF.
  */
 #define	PCI_EMUL_MEMBASE32	0xc0000000
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__riscv)
 #define	PCI_EMUL_IOBASE		0xdf000000UL
 #define	PCI_EMUL_IOLIMIT	0xe0000000UL
 #define	PCI_EMUL_MEMBASE32	0xa0000000UL
@@ -1160,7 +1160,7 @@ pci_emul_init(struct vmctx *ctx, struct pci_devemu *pde, int bus, int slot,
 	pci_set_cfgdata8(pdi, PCIR_INTLINE, 255);
 	pci_set_cfgdata8(pdi, PCIR_INTPIN, 0);
 
-	if (!get_config_bool_default("pci.enable_bars", !bootrom_boot()))
+	if (get_config_bool_default("pci.enable_bars", !bootrom_boot()))
 		pci_set_cfgdata8(pdi, PCIR_COMMAND, PCIM_CMD_BUSMASTEREN);
 
 	err = (*pde->pe_init)(pdi, fi->fi_config);

@@ -161,7 +161,8 @@ gic_v3_fdt_attach(device_t dev)
 	/* Register xref */
 	OF_device_register_xref(xref, dev);
 
-	if (intr_pic_claim_root(dev, xref, arm_gic_v3_intr, sc) != 0) {
+	err = intr_pic_claim_root(dev, xref, arm_gic_v3_intr, sc, INTR_ROOT_IRQ);
+	if (err != 0) {
 		err = ENXIO;
 		goto error;
 	}
@@ -375,7 +376,8 @@ gic_v3_ofw_bus_attach(device_t dev)
 		}
 	}
 
-	return (bus_generic_attach(dev));
+	bus_attach_children(dev);
+	return (0);
 }
 
 static struct resource_list *

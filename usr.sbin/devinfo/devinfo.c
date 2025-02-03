@@ -134,6 +134,8 @@ print_dev(struct devinfo_dev *dev)
 {
 
 	printf("%s", dev->dd_name[0] ? dev->dd_name : "unknown");
+	if (vflag && *dev->dd_desc)
+		printf(" <%s>", dev->dd_desc);
 	if (vflag && *dev->dd_pnpinfo)
 		printf(" pnpinfo %s", dev->dd_pnpinfo);
 	if (vflag && *dev->dd_location)
@@ -183,8 +185,16 @@ print_rman_resource(struct devinfo_res *res, void *arg __unused)
 	printf("    ");
 	print_resource(res);
 	dev = devinfo_handle_to_device(res->dr_device);
-	if ((dev != NULL) && (dev->dd_name[0] != 0)) {
-		printf(" (%s)", dev->dd_name);
+	if (dev != NULL) {
+		if (dev->dd_name[0] != 0) {
+			printf(" (%s)", dev->dd_name);
+		} else {
+			printf(" (unknown)");
+			if (vflag && *dev->dd_pnpinfo)
+				printf(" pnpinfo %s", dev->dd_pnpinfo);
+			if (vflag && *dev->dd_location)
+				printf(" at %s", dev->dd_location);
+		}
 	} else {
 		printf(" ----");
 	}
@@ -231,7 +241,7 @@ usage(void)
 {
 	fprintf(stderr, "%s\n%s\n%s\n",
 	    "usage: devinfo [-rv]",
-	    "       devinfo -u",
+	    "       devinfo -u [-v]",
 	    "       devinfo -p dev [-v]");
 	exit(1);
 }

@@ -318,15 +318,17 @@ static int t4_nofldtxq = -NOFLDTXQ;
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, nofldtxq, CTLFLAG_RDTUN, &t4_nofldtxq, 0,
     "Number of offload TX queues per port");
 
-#define NOFLDRXQ 2
-static int t4_nofldrxq = -NOFLDRXQ;
-SYSCTL_INT(_hw_cxgbe, OID_AUTO, nofldrxq, CTLFLAG_RDTUN, &t4_nofldrxq, 0,
-    "Number of offload RX queues per port");
-
 #define NOFLDTXQ_VI 1
 static int t4_nofldtxq_vi = -NOFLDTXQ_VI;
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, nofldtxq_vi, CTLFLAG_RDTUN, &t4_nofldtxq_vi, 0,
     "Number of offload TX queues per VI");
+#endif
+
+#if defined(TCP_OFFLOAD)
+#define NOFLDRXQ 2
+static int t4_nofldrxq = -NOFLDRXQ;
+SYSCTL_INT(_hw_cxgbe, OID_AUTO, nofldrxq, CTLFLAG_RDTUN, &t4_nofldrxq, 0,
+    "Number of offload RX queues per port");
 
 #define NOFLDRXQ_VI 1
 static int t4_nofldrxq_vi = -NOFLDRXQ_VI;
@@ -334,12 +336,12 @@ SYSCTL_INT(_hw_cxgbe, OID_AUTO, nofldrxq_vi, CTLFLAG_RDTUN, &t4_nofldrxq_vi, 0,
     "Number of offload RX queues per VI");
 
 #define TMR_IDX_OFLD 1
-int t4_tmr_idx_ofld = TMR_IDX_OFLD;
+static int t4_tmr_idx_ofld = TMR_IDX_OFLD;
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, holdoff_timer_idx_ofld, CTLFLAG_RDTUN,
     &t4_tmr_idx_ofld, 0, "Holdoff timer index for offload queues");
 
 #define PKTC_IDX_OFLD (-1)
-int t4_pktc_idx_ofld = PKTC_IDX_OFLD;
+static int t4_pktc_idx_ofld = PKTC_IDX_OFLD;
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, holdoff_pktc_idx_ofld, CTLFLAG_RDTUN,
     &t4_pktc_idx_ofld, 0, "holdoff packet counter index for offload queues");
 
@@ -686,9 +688,10 @@ SYSCTL_INT(_hw_cxgbe, OID_AUTO, drop_pkts_with_l4_errors, CTLFLAG_RDTUN,
  * TOE tunables.
  */
 static int t4_cop_managed_offloading = 0;
-SYSCTL_INT(_hw_cxgbe, OID_AUTO, cop_managed_offloading, CTLFLAG_RDTUN,
+SYSCTL_INT(_hw_cxgbe_toe, OID_AUTO, cop_managed_offloading, CTLFLAG_RDTUN,
     &t4_cop_managed_offloading, 0,
     "COP (Connection Offload Policy) controls all TOE offload");
+TUNABLE_INT("hw.cxgbe.cop_managed_offloading", &t4_cop_managed_offloading);
 #endif
 
 #ifdef KERN_TLS
@@ -869,7 +872,6 @@ static int stop_lld(struct adapter *);
 static inline int restart_adapter(struct adapter *);
 static int restart_lld(struct adapter *);
 #ifdef TCP_OFFLOAD
-static int toe_capability(struct vi_info *, bool);
 static int deactivate_all_uld(struct adapter *);
 static void stop_all_uld(struct adapter *);
 static void restart_all_uld(struct adapter *);
@@ -936,15 +938,15 @@ struct {
 	{0x6402, "Chelsio T6225-SO-CR"},	/* 2 x 10/25G, nomem */
 	{0x6403, "Chelsio T6425-CR"},		/* 4 x 10/25G */
 	{0x6404, "Chelsio T6425-SO-CR"},	/* 4 x 10/25G, nomem */
-	{0x6405, "Chelsio T6225-OCP-SO"},	/* 2 x 10/25G, nomem */
-	{0x6406, "Chelsio T62100-OCP-SO"},	/* 2 x 40/50/100G, nomem */
+	{0x6405, "Chelsio T6225-SO-OCP3"},	/* 2 x 10/25G, nomem */
+	{0x6406, "Chelsio T6225-OCP3"},		/* 2 x 10/25G */
 	{0x6407, "Chelsio T62100-LP-CR"},	/* 2 x 40/50/100G */
 	{0x6408, "Chelsio T62100-SO-CR"},	/* 2 x 40/50/100G, nomem */
 	{0x6409, "Chelsio T6210-BT"},		/* 2 x 10GBASE-T */
 	{0x640d, "Chelsio T62100-CR"},		/* 2 x 40/50/100G */
 	{0x6410, "Chelsio T6-DBG-100"},		/* 2 x 40/50/100G, debug */
 	{0x6411, "Chelsio T6225-LL-CR"},	/* 2 x 10/25G */
-	{0x6414, "Chelsio T61100-OCP-SO"},	/* 1 x 40/50/100G, nomem */
+	{0x6414, "Chelsio T62100-SO-OCP3"},	/* 2 x 40/50/100G, nomem */
 	{0x6415, "Chelsio T6201-BT"},		/* 2 x 1000BASE-T */
 
 	/* Custom */
@@ -1625,11 +1627,7 @@ t4_attach(device_t dev)
 		goto done;
 	}
 
-	rc = bus_generic_probe(dev);
-	if (rc != 0) {
-		device_printf(dev, "failed to probe child drivers: %d\n", rc);
-		goto done;
-	}
+	bus_identify_children(dev);
 
 	/*
 	 * Ensure thread-safe mailbox access (in debug builds).
@@ -1640,12 +1638,7 @@ t4_attach(device_t dev)
 	 */
 	sc->flags |= CHK_MBOX_ACCESS;
 
-	rc = bus_generic_attach(dev);
-	if (rc != 0) {
-		device_printf(dev,
-		    "failed to attach all child ports: %d\n", rc);
-		goto done;
-	}
+	bus_attach_children(dev);
 	t4_calibration_start(sc);
 
 	device_printf(dev,
@@ -1796,7 +1789,7 @@ t4_detach_common(device_t dev)
 	}
 
 	if (device_is_attached(dev)) {
-		rc = bus_generic_detach(dev);
+		rc = bus_detach_children(dev);
 		if (rc) {
 			device_printf(dev,
 			    "failed to detach child devices: %d\n", rc);
@@ -1814,8 +1807,6 @@ t4_detach_common(device_t dev)
 		pi = sc->port[i];
 		if (pi) {
 			t4_free_vi(sc, sc->mbox, sc->pf, 0, pi->vi[0].viid);
-			if (pi->dev)
-				device_delete_child(dev, pi->dev);
 
 			mtx_destroy(&pi->pi_lock);
 			free(pi->vi, M_CXGBE);
@@ -1920,6 +1911,9 @@ t4_detach_common(device_t dev)
 static inline int
 stop_adapter(struct adapter *sc)
 {
+	struct port_info *pi;
+	int i;
+
 	if (atomic_testandset_int(&sc->error_flags, ilog2(ADAP_STOPPED))) {
 		CH_ALERT(sc, "%s from %p, flags 0x%08x,0x%08x, EALREADY\n",
 			 __func__, curthread, sc->flags, sc->error_flags);
@@ -1927,7 +1921,24 @@ stop_adapter(struct adapter *sc)
 	}
 	CH_ALERT(sc, "%s from %p, flags 0x%08x,0x%08x\n", __func__, curthread,
 		 sc->flags, sc->error_flags);
-	return (t4_shutdown_adapter(sc));
+	t4_shutdown_adapter(sc);
+	for_each_port(sc, i) {
+		pi = sc->port[i];
+		PORT_LOCK(pi);
+		if (pi->up_vis > 0 && pi->link_cfg.link_ok) {
+			/*
+			 * t4_shutdown_adapter has already shut down all the
+			 * PHYs but it also disables interrupts and DMA so there
+			 * won't be a link interrupt.  Update the state manually
+			 * if the link was up previously and inform the kernel.
+			 */
+			pi->link_cfg.link_ok = false;
+			t4_os_link_changed(pi);
+		}
+		PORT_UNLOCK(pi);
+	}
+
+	return (0);
 }
 
 static inline int
@@ -1971,18 +1982,23 @@ restart_adapter(struct adapter *sc)
 static inline void
 set_adapter_hwstatus(struct adapter *sc, const bool usable)
 {
-	mtx_lock(&sc->reg_lock);
 	if (usable) {
 		/* Must be marked reusable by the designated thread. */
+		ASSERT_SYNCHRONIZED_OP(sc);
 		MPASS(sc->reset_thread == curthread);
+		mtx_lock(&sc->reg_lock);
 		atomic_clear_int(&sc->error_flags, HW_OFF_LIMITS);
+		mtx_unlock(&sc->reg_lock);
 	} else {
 		/* Mark the adapter totally off limits. */
+		begin_synchronized_op(sc, NULL, SLEEP_OK, "t4hwsts");
+		mtx_lock(&sc->reg_lock);
 		atomic_set_int(&sc->error_flags, HW_OFF_LIMITS);
+		mtx_unlock(&sc->reg_lock);
 		sc->flags &= ~(FW_OK | MASTER_PF);
 		sc->reset_thread = NULL;
+		end_synchronized_op(sc, 0);
 	}
-	mtx_unlock(&sc->reg_lock);
 }
 
 static int
@@ -2020,20 +2036,6 @@ stop_lld(struct adapter *sc)
 	for_each_port(sc, i) {
 		pi = sc->port[i];
 		pi->vxlan_tcam_entry = false;
-
-		PORT_LOCK(pi);
-		if (pi->up_vis > 0) {
-			/*
-			 * t4_shutdown_adapter has already shut down all the
-			 * PHYs but it also disables interrupts and DMA so there
-			 * won't be a link interrupt.  So we update the state
-			 * manually and inform the kernel.
-			 */
-			pi->link_cfg.link_ok = false;
-			t4_os_link_changed(pi);
-		}
-		PORT_UNLOCK(pi);
-
 		for_each_vi(pi, j, vi) {
 			vi->xact_addr_filt = -1;
 			mtx_lock(&vi->tick_mtx);
@@ -2084,6 +2086,13 @@ stop_lld(struct adapter *sc)
 			wrq->eq.flags &= ~EQ_HW_ALLOCATED;
 			TXQ_UNLOCK(wrq);
 			quiesce_wrq(wrq);
+		}
+
+		if (pi->flags & HAS_TRACEQ) {
+			pi->flags &= ~HAS_TRACEQ;
+			sc->traceq = -1;
+			sc->tracer_valid = 0;
+			sc->tracer_enabled = 0;
 		}
 	}
 	if (sc->flags & FULL_INIT_DONE) {
@@ -2399,6 +2408,15 @@ restart_lld(struct adapter *sc)
 					CH_ERR(vi, "failed to re-initialize "
 					    "interface: %d\n", rc);
 					goto done;
+				}
+				if (sc->traceq < 0 && IS_MAIN_VI(vi)) {
+					sc->traceq = sc->sge.rxq[vi->first_rxq].iq.abs_id;
+					t4_write_reg(sc, is_t4(sc) ?
+					    A_MPS_TRC_RSS_CONTROL :
+					    A_MPS_T5_TRC_RSS_CONTROL,
+					    V_RSSCONTROL(pi->tx_chan) |
+					    V_QUEUENUMBER(sc->traceq));
+					pi->flags |= HAS_TRACEQ;
 				}
 
 				ifp = vi->ifp;
@@ -2753,7 +2771,7 @@ cxgbe_attach(device_t dev)
 
 	cxgbe_sysctls(pi);
 
-	bus_generic_attach(dev);
+	bus_attach_children(dev);
 
 	return (0);
 }
@@ -2796,7 +2814,6 @@ cxgbe_detach(device_t dev)
 	rc = bus_generic_detach(dev);
 	if (rc)
 		return (rc);
-	device_delete_children(dev);
 
 	sysctl_ctx_free(&pi->ctx);
 	begin_vi_detach(sc, &pi->vi[0]);
@@ -7769,7 +7786,7 @@ t4_sysctls(struct adapter *sc)
 		SYSCTL_ADD_INT(ctx, children, OID_AUTO, "rx_coalesce",
 		    CTLFLAG_RW, &sc->tt.rx_coalesce, 0, "receive coalescing");
 
-		sc->tt.tls = 0;
+		sc->tt.tls = 1;
 		SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "tls", CTLTYPE_INT |
 		    CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0, sysctl_tls, "I",
 		    "Inline TLS allowed");
@@ -12364,7 +12381,7 @@ t4_ioctl(struct cdev *dev, unsigned long cmd, caddr_t data, int fflag,
 }
 
 #ifdef TCP_OFFLOAD
-static int
+int
 toe_capability(struct vi_info *vi, bool enable)
 {
 	int rc;
@@ -12430,6 +12447,7 @@ toe_capability(struct vi_info *vi, bool enable)
 
 		if (isset(&sc->offload_map, pi->port_id)) {
 			/* TOE is enabled on another VI of this port. */
+			MPASS(pi->uld_vis > 0);
 			pi->uld_vis++;
 			return (0);
 		}
@@ -12455,17 +12473,17 @@ toe_capability(struct vi_info *vi, bool enable)
 		if (!uld_active(sc, ULD_ISCSI))
 			(void) t4_activate_uld(sc, ULD_ISCSI);
 
-		pi->uld_vis++;
-		setbit(&sc->offload_map, pi->port_id);
+		if (pi->uld_vis++ == 0)
+			setbit(&sc->offload_map, pi->port_id);
 	} else {
-		pi->uld_vis--;
-
-		if (!isset(&sc->offload_map, pi->port_id) || pi->uld_vis > 0)
+		if ((if_getcapenable(vi->ifp) & IFCAP_TOE) == 0) {
+			/* TOE is already disabled. */
 			return (0);
-
-		KASSERT(uld_active(sc, ULD_TOM),
-		    ("%s: TOM never initialized?", __func__));
-		clrbit(&sc->offload_map, pi->port_id);
+		}
+		MPASS(isset(&sc->offload_map, pi->port_id));
+		MPASS(pi->uld_vis > 0);
+		if (--pi->uld_vis == 0)
+			clrbit(&sc->offload_map, pi->port_id);
 	}
 
 	return (0);
